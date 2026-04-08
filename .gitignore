@@ -1,0 +1,29 @@
+# Backend environment
+/backend/.env
+
+# Node modules
+/node_modules
+/backend/node_modules
+/frontend/node_modules
+
+# Build output
+/dist
+/dist-ssr
+
+# Logs
+logs
+*.log
+
+# Editor / OS files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+__pycache__/
+*.pyc
