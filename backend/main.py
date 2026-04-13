@@ -8,17 +8,19 @@ Key improvements over previous version:
   - All config from config.py — no hardcoded values here
   - Proper lifespan handler (replaces deprecated on_event)
   - Audit logging for every request
+  - Conversation history: session_id flows from HTTP header → supervisor → agent
+    so every agent can resolve follow-up replies (clarifications, names, etc.)
 """
 import asyncio
 import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import redis as redis_lib
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -28,6 +30,7 @@ from config import (
     REDIS_DB, REDIS_HOST, REDIS_PORT,
     RISK_SCAN_HOURS, RISK_SCAN_MINUTES,
 )
+from conversation_manager import history_store
 from supervisor import run_supervisor
 
 logging.basicConfig(
@@ -68,19 +71,12 @@ async def scheduled_risk_check():
         log_event("scheduler_error", agent="risk_agent", error=str(e), success=False)
 
 
-# ── App lifespan (replaces deprecated @app.on_event) ─────────────────────────
+# ── App lifespan ──────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Startup ───────────────────────────────────────────────────────────────
     logger.info("[STARTUP] RedMind starting up...")
 
-    # Enable LangSmith tracing if configured in .env
-    from langsmith_setup import configure_langsmith
-    configure_langsmith()
-
-    # Pre-warm Redis cache with slow-changing Redmine data
-    # This makes the first user request fast instead of cold
     try:
         from redmine import prewarm
         loop = asyncio.get_event_loop()
@@ -88,9 +84,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[STARTUP] Pre-warm failed (non-fatal): {e}")
 
-    # Schedule risk scans
-    # If RISK_SCAN_INTERVAL_MINUTES > 0, run every N minutes (useful for dev/testing)
-    # Otherwise run on the hour interval defined in .env
     minutes = int(RISK_SCAN_MINUTES)
     if minutes > 0:
         scheduler.add_job(
@@ -107,11 +100,15 @@ async def lifespan(app: FastAPI):
         logger.info(f"[STARTUP] Risk scan: every {hours} hours")
 
     scheduler.start()
-    logger.info("[STARTUP] Ready.")
 
+    # ✅ Run the first scan immediately so Redis is populated before
+    # the frontend polls — without this the bell stays empty for 2 hours.
+    logger.info("[STARTUP] Running initial risk scan...")
+    asyncio.create_task(scheduled_risk_check())
+
+    logger.info("[STARTUP] Ready.")
     yield
 
-    # ── Shutdown ──────────────────────────────────────────────────────────────
     scheduler.shutdown(wait=False)
     logger.info("[SHUTDOWN] Scheduler stopped.")
 
@@ -133,6 +130,9 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     messages: List[Dict[str, str]] = Field(...)
+    # Optional stable session ID from the frontend (e.g. UUID in localStorage).
+    # If omitted, the X-Session-Id header is used instead.
+    session_id: Optional[str] = Field(default=None)
 
 
 class ChatResponse(BaseModel):
@@ -141,65 +141,105 @@ class ChatResponse(BaseModel):
     latency_ms: float
 
 
+# ── Session ID helper ─────────────────────────────────────────────────────────
+
+def _resolve_session_id(req: ChatRequest, x_session_id: Optional[str]) -> str:
+    """
+    Pick a session ID with the following priority:
+      1. X-Session-Id header  (preferred — set by the frontend on every request)
+      2. session_id body field
+      3. Hash of the first user message (per-tab fallback, not persistent)
+
+    The frontend should send a stable UUID stored in localStorage so that history
+    survives page refreshes. Without it, history still works within a session
+    but resets on reload.
+    """
+    if x_session_id:
+        return x_session_id
+    if req.session_id:
+        return req.session_id
+    import hashlib
+    for msg in req.messages:
+        if msg.get("role") == "user":
+            return "anon-" + hashlib.md5(msg["content"].encode()).hexdigest()[:12]
+    return "anon-default"
+
+
 # ── Chat endpoints ────────────────────────────────────────────────────────────
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+async def chat(
+    req: ChatRequest,
+    x_session_id: Optional[str] = Header(default=None),
+):
     start = time.perf_counter()
     try:
-        history = req.messages[:-1]
+        session_id = _resolve_session_id(req, x_session_id)
         user_input = req.messages[-1]["content"]
+
+        # Fetch persisted history for this session.
+        history = history_store.get(session_id)
+
         loop = asyncio.get_event_loop()
-        reply = await loop.run_in_executor(None, run_supervisor, user_input, history)
+        # Pass both history AND session_id to the supervisor.
+        # session_id lets each agent maintain its own internal history store
+        # as a fallback, independently of whether the supervisor forwards history.
+        reply = await loop.run_in_executor(
+            None, lambda: run_supervisor(user_input, history, session_id)
+        )
+
+        # Persist this turn so the next request has full context.
+        history_store.append(session_id, user_msg=user_input, assistant_msg=reply)
+
         latency_ms = (time.perf_counter() - start) * 1000
-        logger.info(f"[/chat] {latency_ms:.0f}ms")
+        logger.info(f"[/chat] session={session_id} {latency_ms:.0f}ms")
         return ChatResponse(reply=reply, model="redmind-v2", latency_ms=round(latency_ms, 2))
+
     except Exception as e:
         logger.error(f"[/chat ERROR] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/chat/stream")
-async def chat_stream(req: ChatRequest):
+async def chat_stream(
+    req: ChatRequest,
+    x_session_id: Optional[str] = Header(default=None),
+):
     """
     Server-Sent Events stream.
-
-    Note on streaming with agents:
-    True token-level streaming requires the LLM to support it AND the agent
-    to expose an astream() interface. With free-tier models on OpenRouter,
-    streaming support is inconsistent.
-
-    Our strategy:
-    1. Run the supervisor fully (in executor to not block the event loop)
-    2. Stream the completed response word-by-word with a tiny delay
-       → The user sees text appearing instantly (feels like streaming)
-       → We avoid SSE/agent streaming reliability issues on free models
-
-    When you upgrade to a production model, replace this with true astream().
+    Runs the supervisor fully then streams word-by-word for a natural feel.
     """
+    # Resolve session and history BEFORE entering the generator.
+    session_id = _resolve_session_id(req, x_session_id)
+    user_input = req.messages[-1]["content"]
+    history = history_store.get(session_id)
+
     async def generate():
         start = time.perf_counter()
         try:
-            history = req.messages[:-1]
-            user_input = req.messages[-1]["content"]
-
             loop = asyncio.get_event_loop()
-            reply = await loop.run_in_executor(None, run_supervisor, user_input, history)
+            reply = await loop.run_in_executor(
+                None, lambda: run_supervisor(user_input, history, session_id)
+            )
+
+            # Save the turn now that we have the full reply.
+            history_store.append(session_id, user_msg=user_input, assistant_msg=reply)
 
             latency_ms = (time.perf_counter() - start) * 1000
-            logger.info(f"[/chat/stream] agent done in {latency_ms:.0f}ms, now streaming tokens")
+            logger.info(
+                f"[/chat/stream] session={session_id} done in {latency_ms:.0f}ms, streaming..."
+            )
 
-            # Stream word by word
             words = reply.split(" ")
             for i, word in enumerate(words):
                 chunk = word + (" " if i < len(words) - 1 else "")
                 yield f"data: {json.dumps({'token': chunk})}\n\n"
-                await asyncio.sleep(0.012)  # ~83 words/sec — feels natural
+                await asyncio.sleep(0.012)
 
             yield "data: [DONE]\n\n"
 
         except Exception as e:
-            logger.error(f"[/chat/stream ERROR] {e}")
+            logger.error(f"[/chat/stream ERROR] session={session_id} {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(
@@ -213,18 +253,25 @@ async def chat_stream(req: ChatRequest):
     )
 
 
-# ── Proactive risks endpoint ──────────────────────────────────────────────────
+# ── Session management ────────────────────────────────────────────────────────
+
+@app.delete("/chat/history")
+async def clear_history(x_session_id: Optional[str] = Header(default=None)):
+    """
+    Clear conversation history for the current session.
+    Call this when the user starts a new conversation.
+    """
+    if not x_session_id:
+        raise HTTPException(status_code=400, detail="X-Session-Id header is required.")
+    history_store.clear(x_session_id)
+    logger.info(f"[/chat/history] Cleared session={x_session_id}")
+    return {"cleared": True, "session_id": x_session_id}
+
 
 # ── Proactive risks endpoint ──────────────────────────────────────────────────
 
 @app.get("/api/proactive-risks")
 async def get_proactive_risks(project_id: str = ""):
-    """
-    Frontend polls this on login + every 5 minutes.
-    Returns latest cached risk scan result.
-    If project_id is provided, triggers a fresh scan for that project.
-    """
-    # Helper: Determine if alert should show (any non-healthy state)
     def _should_alert(critical_count: int, overall_health: str) -> bool:
         return critical_count > 0 or overall_health not in ["Healthy", "Unknown"]
 
@@ -237,20 +284,18 @@ async def get_proactive_risks(project_id: str = ""):
             )
             return {
                 "has_alert": _should_alert(
-                    result["critical_count"],
-                    result.get("overall_health", "Unknown")
+                    result["critical_count"], result.get("overall_health", "Unknown")
                 ),
                 "message": result["proactive_message"],
                 "critical_count": result["critical_count"],
                 "slack_sent": result["slack_sent"],
                 "overall_health": result.get("overall_health", "Unknown"),
                 "recommendations": result.get("recommendations", []),
-                "checked_at": result.get("checked_at"),  # ✅ Now included
+                "checked_at": result.get("checked_at"),
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    # Return latest cached result (from scheduled scan)
     try:
         r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
         cached = r.get("proactive:risk:latest")
@@ -258,8 +303,7 @@ async def get_proactive_risks(project_id: str = ""):
             data = json.loads(cached)
             return {
                 "has_alert": _should_alert(
-                    data["critical_count"],
-                    data.get("overall_health", "Unknown")
+                    data["critical_count"], data.get("overall_health", "Unknown")
                 ),
                 "message": data["proactive_message"],
                 "critical_count": data["critical_count"],
@@ -282,11 +326,10 @@ async def get_proactive_risks(project_id: str = ""):
     }
 
 
-# ── Stats endpoint (for quick dashboard data without full agent) ──────────────
+# ── Stats endpoint ────────────────────────────────────────────────────────────
 
 @app.get("/stats")
 async def stats():
-    """Quick stats endpoint — reads from Redis cache, falls back to Redmine."""
     import redmine as rm
     from datetime import date
     try:
@@ -321,27 +364,10 @@ async def stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Health check ──────────────────────────────────────────────────────────────
+# ── Metrics endpoint ──────────────────────────────────────────────────────────
 
 @app.get("/metrics")
 async def get_metrics(source: str = "redis"):
-    """
-    Agent performance metrics endpoint.
-
-    ?source=redis    → live counters from Redis (fast, always available)
-    ?source=log      → computed from audit JSONL log (slower, deeper analysis)
-    ?source=both     → both sources side by side (best for comparison)
-
-    Metrics returned per agent:
-      - avg_latency_ms        How long the agent takes on average
-      - error_rate_pct        % of calls that fail
-      - cache_hit_rate_pct    % served from LLM cache
-      - avg_tool_calls        Avg tool calls per invocation (lower = better)
-      - avg_redundant_reads   Reads called despite data in context (should be ~0)
-      - avg_llm_steps         LangGraph steps used (out of recursion_limit=30)
-      - health                "good" / "warning" / "degraded: reason"
-      + agent-specific fields (json_success_rate, risks_found, writes, etc.)
-    """
     from metrics import get_live_metrics, get_metrics_from_audit_log
 
     if source == "redis":
@@ -357,6 +383,8 @@ async def get_metrics(source: str = "redis"):
     else:
         raise HTTPException(status_code=400, detail="source must be 'redis', 'log', or 'both'")
 
+
+# ── Health check ──────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
@@ -377,3 +405,16 @@ async def health():
         "redis": "connected" if redis_ok else "disconnected",
         "redmine": "connected" if redmine_ok else "disconnected",
     }
+
+
+@app.get("/debug/risk")
+async def debug_risk():
+    """Temporary endpoint to inspect the latest risk scan result in Redis."""
+    try:
+        r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+        cached = r.get("proactive:risk:latest")
+        if not cached:
+            return {"status": "empty", "message": "No risk scan result in Redis yet."}
+        return {"status": "found", "data": json.loads(cached)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

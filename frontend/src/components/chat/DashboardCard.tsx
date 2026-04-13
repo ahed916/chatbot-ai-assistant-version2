@@ -21,6 +21,7 @@ import {
   Line,
 } from "recharts";
 import { DashboardPayload, ChartConfig, KPI } from "@/types/chat";
+import ReactMarkdown from "react-markdown";
 
 // ── Color palette ─────────────────────────────────────────────────────────────
 
@@ -184,6 +185,15 @@ export function DashboardCard({ dashboard }: { dashboard: DashboardPayload }) {
     return (
       <div className="mt-2 text-sm text-muted-foreground border rounded-lg px-4 py-3">
         {dashboard.message ?? "No data available."}
+      </div>
+    );
+  }
+  if (dashboard.type === "clarification") {
+    return (
+      <div className="mt-2 rounded-2xl px-4 py-2.5 text-sm leading-relaxed bg-chat-assistant text-chat-assistant-fg border rounded-bl-md shadow-sm">
+        <div className="prose-chat">
+          <ReactMarkdown>{dashboard.message ?? ""}</ReactMarkdown>
+        </div>
       </div>
     );
   }

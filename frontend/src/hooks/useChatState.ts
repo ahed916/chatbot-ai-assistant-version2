@@ -57,51 +57,57 @@
  // ── Dashboard detection ───────────────────────────────────────────────────────
  
  function extractDashboard(content: string): {
-   isDashboard: boolean;
-   payload?: DashboardPayload;
-   cleanContent?: string;
- } {
-   const trimmed = content.trim();
- 
-   // 1. Pure JSON
-   if (trimmed.startsWith("{")) {
-     try {
-       const parsed = JSON.parse(trimmed) as DashboardPayload;
-       if (parsed.type === "dashboard" || parsed.type === "quick_stat") {
-         return { isDashboard: true, payload: parsed, cleanContent: trimmed };
-       }
-     } catch {}
-   }
- 
-   // 2. JSON in ```json ... ``` fences
-   const fenceMatch = trimmed.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-   if (fenceMatch) {
-     try {
-       const parsed = JSON.parse(fenceMatch[1]) as DashboardPayload;
-       if (parsed.type === "dashboard" || parsed.type === "quick_stat") {
-         return { isDashboard: true, payload: parsed, cleanContent: fenceMatch[1] };
-       }
-     } catch {}
-   }
- 
-   // 3. JSON embedded in text
-   for (const marker of [
-     '{"type":"dashboard"', '{"type": "dashboard"',
-     '{"type":"quick_stat"', '{"type": "quick_stat"',
-   ]) {
-     const idx = trimmed.indexOf(marker);
-     if (idx !== -1) {
-       try {
-         const parsed = JSON.parse(trimmed.slice(idx)) as DashboardPayload;
-         if (parsed.type === "dashboard" || parsed.type === "quick_stat") {
-           return { isDashboard: true, payload: parsed, cleanContent: trimmed.slice(idx) };
-         }
-       } catch {}
-     }
-   }
- 
-   return { isDashboard: false };
- }
+  isDashboard: boolean;
+  payload?: DashboardPayload;
+  cleanContent?: string;
+} {
+  const trimmed = content.trim();
+
+  const DASHBOARD_TYPES = new Set([
+    "dashboard", "quick_stat", "clarification", "no_data"  // ← add these two
+  ]);
+
+  // 1. Pure JSON
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as DashboardPayload;
+      if (DASHBOARD_TYPES.has(parsed.type)) {
+        return { isDashboard: true, payload: parsed, cleanContent: trimmed };
+      }
+    } catch {}
+  }
+
+  // 2. JSON in ```json ... ``` fences
+  const fenceMatch = trimmed.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (fenceMatch) {
+    try {
+      const parsed = JSON.parse(fenceMatch[1]) as DashboardPayload;
+      if (DASHBOARD_TYPES.has(parsed.type)) {
+        return { isDashboard: true, payload: parsed, cleanContent: fenceMatch[1] };
+      }
+    } catch {}
+  }
+
+  // 3. JSON embedded in text — add clarification/no_data markers
+  for (const marker of [
+    '{"type":"dashboard"',    '{"type": "dashboard"',
+    '{"type":"quick_stat"',   '{"type": "quick_stat"',
+    '{"type":"clarification"','{"type": "clarification"',  // ← add
+    '{"type":"no_data"',      '{"type": "no_data"',        // ← add
+  ]) {
+    const idx = trimmed.indexOf(marker);
+    if (idx !== -1) {
+      try {
+        const parsed = JSON.parse(trimmed.slice(idx)) as DashboardPayload;
+        if (DASHBOARD_TYPES.has(parsed.type)) {
+          return { isDashboard: true, payload: parsed, cleanContent: trimmed.slice(idx) };
+        }
+      } catch {}
+    }
+  }
+
+  return { isDashboard: false };
+}
  
  // ── Types ─────────────────────────────────────────────────────────────────────
  
@@ -123,6 +129,8 @@
    const [activeId,      setActiveId]      = useState<string | null>(null);
    const [isTyping,      setIsTyping]      = useState(false);
    const [riskAlerts,    setRiskAlerts]    = useState<RiskAlert[]>([]);
+
+   const sessionIdRef = useRef<string>("");
  
    const conversationsRef = useRef(conversations);
    const riskAlertsRef    = useRef(riskAlerts);
@@ -137,7 +145,11 @@
    useEffect(() => {
      const checkProactiveRisks = async () => {
        try {
-         const res = await fetch(PROACTIVE_URL);
+        const res = await fetch(PROACTIVE_URL, {
+          headers: {
+            "X-Session-Id": sessionIdRef.current,
+          },
+        });
          if (!res.ok) return;
          const data: ProactiveRiskResponse = await res.json();
  
@@ -341,7 +353,10 @@
        try {
          const res = await fetch(STREAM_URL, {
            method: "POST",
-           headers: { "Content-Type": "application/json" },
+           headers: {
+            "Content-Type": "application/json",
+            "X-Session-Id": sessionIdRef.current,
+          },
            body: JSON.stringify({ messages: fullMessages }),
          });
          if (!res.ok || !res.body) throw new Error("Stream unavailable");
@@ -419,7 +434,10 @@
          try {
            const res = await fetch(CHAT_URL, {
              method: "POST",
-             headers: { "Content-Type": "application/json" },
+             headers: {
+              "Content-Type": "application/json",
+              "X-Session-Id": sessionIdRef.current,
+            },
              body: JSON.stringify({ messages: fullMessages }),
            });
            if (!res.ok) throw new Error(await res.text());

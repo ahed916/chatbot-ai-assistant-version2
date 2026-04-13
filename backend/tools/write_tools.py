@@ -12,6 +12,24 @@ import redmine as rm
 logger = logging.getLogger(__name__)
 
 
+# ── Internal User Resolver (NO admin key needed) ─────────────────────────────
+def _resolve_user_id(name: str) -> int | None:
+    """Resolve a user name to ID using project memberships + assignees."""
+    name_lower = name.lower().strip()
+    try:
+        projects = rm.list_projects()
+        for p in projects:
+            for m in rm.list_members(str(p["id"])):
+                user = m.get("user", {})
+                uname = user.get("name", "").lower().strip()
+                # Fuzzy match: substring or word overlap
+                if name_lower in uname or uname in name_lower or set(name_lower.split()) & set(uname.split()):
+                    return user["id"]
+    except Exception:
+        pass
+    return None
+
+
 @tool
 def create_redmine_issue(
     project_identifier: str,
@@ -52,14 +70,9 @@ def create_redmine_issue(
         # Resolve assignee name to ID
         assigned_to_id = None
         if assignee_name:
-            users = rm.list_users()
-            for u in users:
-                full_name = f"{u.get('firstname', '')} {u.get('lastname', '')}".strip()
-                if full_name.lower() == assignee_name.lower() or u.get("login", "").lower() == assignee_name.lower():
-                    assigned_to_id = u["id"]
-                    break
-            if not assigned_to_id:
-                return f"Could not find user '{assignee_name}'. Issue not created. Use get_all_users to see available users."
+            assigned_to_id = _resolve_user_id(assignee_name)
+            if assigned_to_id is None:
+                return f"Could not find user '{assignee_name}'. Issue not created. Check spelling or project membership."
 
         result = rm.create_issue(
             project_id=project_id,
@@ -127,13 +140,7 @@ def update_redmine_issue(
 
         # Resolve assignee
         if new_assignee_name:
-            users = rm.list_users()
-            assigned_to_id = None
-            for u in users:
-                full_name = f"{u.get('firstname', '')} {u.get('lastname', '')}".strip()
-                if full_name.lower() == new_assignee_name.lower():
-                    assigned_to_id = u["id"]
-                    break
+            assigned_to_id = _resolve_user_id(new_assignee_name)
             if assigned_to_id is None:
                 return f"User '{new_assignee_name}' not found. Issue not updated."
             kwargs["assigned_to_id"] = assigned_to_id
@@ -266,12 +273,7 @@ def bulk_update_issues(
 
     assigned_to_id = None
     if new_assignee_name:
-        users = rm.list_users()
-        for u in users:
-            full_name = f"{u.get('firstname', '')} {u.get('lastname', '')}".strip()
-            if full_name.lower() == new_assignee_name.lower():
-                assigned_to_id = u["id"]
-                break
+        assigned_to_id = _resolve_user_id(new_assignee_name)
         if assigned_to_id is None:
             return f"User '{new_assignee_name}' not found."
 

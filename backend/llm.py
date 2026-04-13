@@ -18,7 +18,7 @@ def get_llm() -> ChatOpenAI:
         api_key=LLM_API_KEY,
         model=LLM_MODEL,
         temperature=LLM_TEMPERATURE,
-        max_tokens=LLM_MAX_TOKENS,
+
         timeout=LLM_TIMEOUT,
         # Improves reliability on free-tier models
         max_retries=2,

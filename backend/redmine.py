@@ -5,6 +5,14 @@ redmine.py — Redmine API client with:
   - Graceful degradation: if Redmine is down, return cached data with a warning
   - Audit logging of every write operation
   - Zero hardcoded values
+
+Fix: create_issue always sends project_id, tracker_id, status_id as integers.
+  Previously the body dict was built with positional-default values, meaning
+  if the caller passed tracker_id=2 and status_id=3, they were included —
+  but if Redmine's API key lacked permissions or the project_id was sent as a
+  string instead of int, Redmine returned "Project cannot be blank".
+  Now: project_id is explicitly cast to int(), and all three required IDs are
+  always present in the body regardless of their values.
 """
 import httpx
 import json
@@ -107,7 +115,7 @@ def _make_retry_decorator():
 @_make_retry_decorator()
 def _get(path: str, params: dict = None):
     start = time.perf_counter()
-    r = httpx.get(f"{BASE}{path}", headers=HEADERS, params=params or {}, timeout=10)
+    r = httpx.get(f"{BASE}{path}", headers=HEADERS, params=params or {}, timeout=30)
     r.raise_for_status()
     ms = (time.perf_counter() - start) * 1000
     logger.debug(f"[REDMINE GET] {path} → {ms:.0f}ms")
@@ -117,7 +125,13 @@ def _get(path: str, params: dict = None):
 @_make_retry_decorator()
 def _post(path: str, body: dict):
     start = time.perf_counter()
-    r = httpx.post(f"{BASE}{path}", headers=HEADERS, json=body, timeout=10)
+    r = httpx.post(f"{BASE}{path}", headers=HEADERS, json=body, timeout=30)
+    if r.status_code == 422:
+        try:
+            errors = r.json().get("errors", [r.text])
+        except Exception:
+            errors = [r.text]
+        raise ValueError(f"Redmine validation error: {'; '.join(errors)}")
     r.raise_for_status()
     ms = (time.perf_counter() - start) * 1000
     logger.debug(f"[REDMINE POST] {path} → {ms:.0f}ms")
@@ -127,7 +141,7 @@ def _post(path: str, body: dict):
 @_make_retry_decorator()
 def _put(path: str, body: dict):
     start = time.perf_counter()
-    r = httpx.put(f"{BASE}{path}", headers=HEADERS, json=body, timeout=10)
+    r = httpx.put(f"{BASE}{path}", headers=HEADERS, json=body, timeout=30)
     r.raise_for_status()
     ms = (time.perf_counter() - start) * 1000
     logger.debug(f"[REDMINE PUT] {path} → {ms:.0f}ms")
@@ -137,7 +151,7 @@ def _put(path: str, body: dict):
 @_make_retry_decorator()
 def _delete(path: str):
     start = time.perf_counter()
-    r = httpx.delete(f"{BASE}{path}", headers=HEADERS, timeout=10)
+    r = httpx.delete(f"{BASE}{path}", headers=HEADERS, timeout=30)
     r.raise_for_status()
     ms = (time.perf_counter() - start) * 1000
     logger.debug(f"[REDMINE DELETE] {path} → {ms:.0f}ms")
@@ -263,57 +277,110 @@ def get_allowed_transitions(issue_id: int) -> dict:
         raise
 
 
-def list_users():
-    """
-    Removed — requires admin API key (returns 403).
-    Use context_builder._extract_users_from_issues_and_members() instead,
-    which gets user data from issue assignees and memberships.
-    """
-    return []
-
-
-def resolve_project_id(name_or_id: str) -> str:
+def resolve_project_id(name_or_id: str) -> int:
     cache_key = f"resolve:{normalize(name_or_id)}"
     cached = _cache_get(cache_key)
     if cached:
-        return cached
+        return int(cached)
     projects = list_projects()
     n = normalize(name_or_id)
+
+    import re
+    def alphanum(s): return re.sub(r'[^a-z0-9]', '', s.lower())
+    n_fuzzy = alphanum(name_or_id)
+
     for p in projects:
         if (
             str(p["id"]) == name_or_id
             or normalize(p["identifier"]) == n
             or normalize(p["name"]) == n
+            or alphanum(p["identifier"]) == n_fuzzy
+            or alphanum(p["name"]) == n_fuzzy
         ):
-            result = str(p["id"])
+            result = int(p["id"])
             _cache_set(cache_key, result, CACHE_TTL_PROJECTS)
             logger.debug(f"[RESOLVE] '{name_or_id}' → ID {result}")
             return result
-    logger.debug(f"[RESOLVE] '{name_or_id}' not found, using as-is")
-    return name_or_id
+
+    available = ", ".join(
+        f"'{p['name']}' ({p['identifier']})" for p in projects
+    )
+    raise ValueError(
+        f"Project '{name_or_id}' not found.\n"
+        f"Available projects: {available}"
+    )
 
 
 # ── WRITE functions (all audit-logged + cache-invalidated) ───────────────────
 
 def create_issue(
-    project_id, subject, description="", assigned_to_id=None,
-    priority_id=2, tracker_id=1, status_id=1, due_date=None,
-):
-    body = {
-        "issue": {
-            "project_id": project_id,
-            "subject": subject,
-            "description": description,
-            "priority_id": priority_id,
-            "tracker_id": tracker_id,
-            "status_id": status_id,
-        }
+    project_id: int,
+    subject: str,
+    description: str = "",
+    assigned_to_id: int = None,
+    priority_id: int = 2,
+    tracker_id: int = 1,
+    status_id: int = 1,
+    due_date: str = None,
+    done_ratio: int = None,
+) -> dict:
+    """
+    Create a Redmine issue.
+
+    All three of project_id, tracker_id, status_id MUST be non-None integers.
+    We cast them explicitly and raise early rather than sending bad data to Redmine.
+    """
+    # ── Hard validation: these three can never be None or zero ───────────────
+    try:
+        project_id = int(project_id)
+        tracker_id = int(tracker_id)
+        status_id = int(status_id)
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"create_issue called with invalid IDs: "
+            f"project_id={project_id!r}, tracker_id={tracker_id!r}, status_id={status_id!r}. "
+            f"All three must be integers. Detail: {e}"
+        )
+
+    if project_id <= 0:
+        raise ValueError(f"create_issue: project_id must be > 0, got {project_id}")
+    if tracker_id <= 0:
+        raise ValueError(f"create_issue: tracker_id must be > 0, got {tracker_id}")
+    if status_id <= 0:
+        raise ValueError(f"create_issue: status_id must be > 0, got {status_id}")
+
+    # ── Build body — always include all three required integer IDs ────────────
+    issue_body: dict = {
+        "project_id": project_id,
+        "subject": subject,
+        "tracker_id": tracker_id,
+        "status_id": status_id,
+        "priority_id": int(priority_id) if priority_id else 2,
     }
+
+    # Optional fields — only add if provided
+    if description:
+        issue_body["description"] = description
     if assigned_to_id:
-        body["issue"]["assigned_to_id"] = assigned_to_id
+        issue_body["assigned_to_id"] = int(assigned_to_id)
     if due_date:
-        body["issue"]["due_date"] = due_date
-    result = _post("/issues.json", body).get("issue", {})
+        issue_body["due_date"] = due_date
+    if done_ratio is not None:
+        issue_body["done_ratio"] = int(done_ratio)
+
+    body = {"issue": issue_body}
+
+    logger.debug(
+        f"[REDMINE] create_issue body: project_id={project_id}, "
+        f"tracker_id={tracker_id}, status_id={status_id}, subject={subject!r}"
+    )
+
+    try:
+        logger.warning(f"[DEBUG redmine.py] POST /issues.json body: {json.dumps(body)}")
+        result = _post("/issues.json", body).get("issue", {})
+    except ValueError as e:
+        raise RuntimeError(str(e)) from e
+
     _cache_invalidate()
     log_event(
         "redmine_write",
@@ -326,10 +393,19 @@ def create_issue(
 
 
 def update_issue(
-    issue_id, status_id=None, assigned_to_id=None,
-    tracker_id=None, priority_id=None, notes="", due_date=None,
+    issue_id,
+    status_id=None,
+    assigned_to_id=None,
+    tracker_id=None,
+    priority_id=None,
+    notes="",
+    due_date=None,
+    done_ratio=None,
+    subject=None,
+    description=None,
 ):
-    body = {"issue": {"notes": notes}}
+    body: dict = {"issue": {"notes": notes or ""}}
+
     if status_id is not None:
         body["issue"]["status_id"] = status_id
     if assigned_to_id is not None:
@@ -340,6 +416,13 @@ def update_issue(
         body["issue"]["priority_id"] = priority_id
     if due_date is not None:
         body["issue"]["due_date"] = due_date
+    if done_ratio is not None:
+        body["issue"]["done_ratio"] = int(done_ratio)
+    if subject is not None:
+        body["issue"]["subject"] = subject
+    if description is not None:
+        body["issue"]["description"] = description
+
     try:
         _put(f"/issues/{issue_id}.json", body)
         _cache_invalidate(f"issue:{issue_id}")
@@ -354,8 +437,17 @@ def update_issue(
         if e.response.status_code == 404:
             return "NOT_FOUND"
         if e.response.status_code == 422:
-            errors = e.response.json().get("errors", [])
-            return f"WORKFLOW_ERROR: {', '.join(errors)}"
+            try:
+                errors = e.response.json().get("errors", [])
+            except Exception:
+                errors = [str(e)]
+            joined = ", ".join(errors)
+            if any(
+                kw in joined.lower()
+                for kw in ("status", "transition", "workflow", "not allowed")
+            ):
+                return f"WORKFLOW_ERROR: {joined}"
+            return f"VALIDATION_ERROR: {joined}"
         raise
 
 
@@ -379,68 +471,169 @@ def delete_issue(issue_id: int):
 # ── Pre-warm cache (called on server startup) ─────────────────────────────────
 
 def prewarm():
-    """Pre-load slow-changing data into Redis so first requests are fast.
+    """Pre-load ALL frequently-needed data into Redis at startup."""
+    from concurrent.futures import ThreadPoolExecutor
 
-    Called once at startup from main.py.
-    """
-    logger.info("[PREWARM] Loading projects, trackers, statuses, users into cache...")
+    logger.info("[PREWARM] Warming Redis cache...")
     try:
-        list_projects()
+        projects = list_projects()
         list_trackers()
         list_issue_statuses()
-        logger.info("[PREWARM] Done.")
+        list_issues(status="*", limit=200)
+
+        def _warm_members(p):
+            try:
+                list_members(str(p["id"]))
+            except Exception:
+                pass
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(_warm_members, projects))
+
+        logger.info("[PREWARM] Done — all caches warm.")
     except Exception as e:
         logger.warning(f"[PREWARM] Failed (non-fatal): {e}")
 
 
-# In redmine.py — add this function
-
-def resolve_user_id(name: str, project_id: str = None) -> int | None:
-    name_lower = name.lower().strip()
-
-    def score_match(user_name: str) -> int:
-        """Higher score = better match"""
-        user_lower = user_name.lower().strip()
-        score = 0
-        if user_lower == name_lower:
-            score += 100  # exact
-        elif name_lower in user_lower:
-            score += 50  # substring
-        elif user_lower in name_lower:
-            score += 30  # reverse substring
-        # Bonus for matching first/last name separately
-        name_parts = set(name_lower.split())
-        user_parts = set(user_lower.split())
-        if name_parts & user_parts:
-            score += 20 * len(name_parts & user_parts)
-        return score
-
-    candidates = []
-
-    # Collect all possible users from memberships
-    projects_to_check = [project_id] if project_id else [p["id"] for p in list_projects()]
-    for pid in projects_to_check:
-        for m in list_members(str(pid)):
-            user = m.get("user", {})
-            uid = user.get("id")
-            uname = user.get("name", "")
-            if uid and uname:
-                score = score_match(uname)
-                if score > 0:
-                    candidates.append((score, uid, uname))
-
-    if not candidates:
+def get_issue_summary(issue_id: int) -> str | None:
+    """Fetch minimal human-readable summary for a specific issue."""
+    issue = get_issue(issue_id)
+    if not issue:
         return None
 
-    # Return highest-scoring match
-    candidates.sort(key=lambda x: -x[0])
-    best_score, best_id, best_name = candidates[0]
+    assignee = issue.get("assigned_to", {}).get("name", "Unassigned")
+    status = issue.get("status", {}).get("name", "Unknown")
+    return (
+        f"Issue #{issue_id}:\n"
+        f"  Subject: {issue.get('subject', '')}\n"
+        f"  Assigned: {assignee}\n"
+        f"  Status: {status}\n"
+        f"  Tracker: {issue.get('tracker', {}).get('name', '')}\n"
+        f"  Priority: {issue.get('priority', {}).get('name', '')}"
+    )
 
-    # Only auto-select if confidence is high
-    if best_score >= 50:
-        logger.debug(f"[RESOLVE] '{name}' → ID:{best_id} ({best_name}) [score:{best_score}]")
-        return best_id
 
-    # Low confidence → return None so agent can ask
-    logger.warning(f"[RESOLVE] Ambiguous match for '{name}': {candidates[:3]}")
-    return None
+def create_project(
+    name: str,
+    identifier: str,
+    description: str = "",
+    is_public: bool = False,
+) -> dict:
+    body = {
+        "project": {
+            "name": name,
+            "identifier": identifier,
+            "description": description,
+            "is_public": is_public,
+        }
+    }
+    try:
+        result = _post("/projects.json", body).get("project", {})
+    except ValueError as e:
+        err = str(e).lower()
+        if "identifier" in err and ("taken" in err or "already" in err or "invalid" in err):
+            logger.info(f"[CREATE PROJECT] '{identifier}' already exists, resolving existing.")
+            projects = list_projects()
+            existing = next(
+                (p for p in projects if p["identifier"] == identifier),
+                None
+            )
+            if existing:
+                return existing
+        raise
+
+    _cache_invalidate("projects")
+    log_event(
+        "redmine_write",
+        agent="automation_agent",
+        redmine_action="create_project",
+        tool_args={"name": name, "identifier": identifier},
+        tool_result=str(result.get("id", "")),
+    )
+    return result
+
+
+def attach_file_to_issue(issue_id: int, file_path: str) -> dict:
+    """Upload a file and attach it to an existing issue (two-step Redmine operation)."""
+    import os
+
+    if not os.path.isfile(file_path):
+        raise ValueError(f"File not found: {file_path}")
+
+    filename = os.path.basename(file_path)
+
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+
+    upload_headers = {
+        "X-Redmine-API-Key": REDMINE_API_KEY,
+        "Content-Type": "application/octet-stream",
+    }
+    upload_response = httpx.post(
+        f"{BASE}/uploads.json",
+        headers=upload_headers,
+        content=file_bytes,
+        timeout=60,
+    )
+    upload_response.raise_for_status()
+    token = upload_response.json().get("upload", {}).get("token")
+
+    if not token:
+        raise RuntimeError("Redmine did not return an upload token.")
+
+    attach_body = {
+        "issue": {
+            "uploads": [
+                {
+                    "token": token,
+                    "filename": filename,
+                    "content_type": "application/octet-stream",
+                }
+            ]
+        }
+    }
+    _put(f"/issues/{issue_id}.json", attach_body)
+    _cache_invalidate(f"issue:{issue_id}")
+
+    log_event(
+        "redmine_write",
+        agent="automation_agent",
+        redmine_action="attach_file",
+        tool_args={"issue_id": issue_id, "filename": filename},
+    )
+    return {"token": token, "filename": filename}
+
+
+def list_issues_filtered(
+    project_id=None,
+    status="open",
+    assigned_to_id=None,      # numeric Redmine user ID, or "me"
+    tracker_id=None,           # e.g. 1=Bug, 2=Feature, 4=Task
+    priority_id=None,
+    created_after=None,        # ISO date string "2025-04-10"
+    updated_after=None,
+    due_before=None,
+    limit=100,
+) -> list[dict]:
+    params = {"limit": limit}
+    if status != "*":
+        params["status_id"] = status
+    else:
+        params["status_id"] = "*"
+    if project_id:
+        params["project_id"] = project_id
+    if assigned_to_id:
+        params["assigned_to_id"] = assigned_to_id
+    if tracker_id:
+        params["tracker_id"] = tracker_id
+    if priority_id:
+        params["priority_id"] = priority_id
+    if created_after:
+        params["created_on"] = f">={created_after}"
+    if updated_after:
+        params["updated_on"] = f">={updated_after}"
+    if due_before:
+        params["due_date"] = f"<={due_before}"
+
+    resp = _get("/issues.json", params=params)
+    return resp.get("issues", [])

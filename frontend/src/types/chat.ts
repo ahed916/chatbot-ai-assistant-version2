@@ -60,7 +60,7 @@ export interface ChartConfig {
 
 export interface DashboardPayload {
   // Added "no_data" — returned when Redmine has 0 issues
-  type: "dashboard" | "quick_stat" | "no_data";
+  type: "dashboard" | "quick_stat" | "no_data" | "clarification";
   title?: string;
   summary?: string;
   generated_at?: string;
