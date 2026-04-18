@@ -1,0 +1,5 @@
+Issue #7 is a bug in the E‑Learning Platform where the Android app crashes when enrolling in courses with more than 50 lessons. It’s currently **New**, assigned to Mounir Qa, with an urgent priority and a target date of April 11, 2026.
+
+I tried to set it to **Resolved**, but Redmine’s workflow only allows moving from **New** to **In Progress**, **Closed**, **Rejected**, or **Blocked**. Would you like to change it to one of those statuses instead?
+
+What would you prefer to do with issue 7?

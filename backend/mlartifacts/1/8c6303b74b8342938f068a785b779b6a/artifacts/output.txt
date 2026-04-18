@@ -1,0 +1,27 @@
+Here are all 21 open bugs across the system:
+
+- #44 [High] payment crash | Mobile App | Unassigned | No due date
+- #43 [High] payment crash | Mobile App | Unassigned | No due date
+- #42 [High] payment crash | Mobile App | Unassigned | No due date
+- #41 [High] payment crash | Mobile App | Unassigned | No due date
+- #40 [High] payment crash | Mobile App | Unassigned | No due date
+- #39 [High] payment crash | Mobile App | Unassigned | No due date
+- #38 [High] payment crash | Mobile App | Unassigned | No due date
+- #37 [High] Checkout error | E-Learning Platform | Alice Fullstack | Due 2026-04-12 (Overdue)
+- #36 [Normal] Fix login | E-Learning Platform | Alice Fullstack | No due date
+- #31 [High] Fix payment bug | web Platform | Unassigned | No due date
+- #28 [High] Course search returns incorrect results when using filters | E-Learning Platform | Alice Fullstack | Due 2026-04-10 (Overdue)
+- #25 [Very Low] Fix typo in landing page footer text | E-Learning Platform | Amir Backend | Due 2026-05-01
+- #22 [High] Video streaming freezes on slow internet connections | E-Learning Platform | Abir Mobile | Due 2026-03-15 (Overdue)
+- #12 [Normal] Students don't receive course update notifications | E-Learning Platform | Amir Backend | No due date
+- #11 [High] Course dashboard layout broken on tablets (768px-1024px) | E-Learning Platform | Abir Mobile | No due date
+- #10 [High] Payment processing times out for courses over $100 | E-Learning Platform | Amira Frontend | Due 2026-04-17
+- #9 [Urgent] XSS vulnerability in course discussion forum | E-Learning Platform | Alice Fullstack | No due date
+- #8 [Urgent] Course completion certificate shows wrong student name | E-Learning Platform | Amira Frontend | No due date
+- #7 [High] Mobile app crashes when enrolling in course with >50 lessons | E-Learning Platform | Abir Mobile | Due 2026-04-11 (Overdue)
+- #6 [Normal] Course progress bar shows incorrect percentage | E-Learning Platform | Alice Fullstack | No due date
+- #4 [High] Video player crashes on iOS Safari when switching to fullscreen | E-Learning Platform | Amir Backend | No due date
+
+Breakdown by project: Mobile App (7), E-Learning Platform (13), web Platform (1). Four bugs are currently overdue.
+
+Would you like me to take any action on this?

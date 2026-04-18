@@ -4,9 +4,14 @@
  * All types imported from @/types/chat — never redefined here.
  *
  * Risk alert deduplication:
- *   React state resets on every page reload, so seen alert IDs are also
- *   persisted in sessionStorage. This prevents the same alert from appearing
- *   multiple times within the same browser session.
+ *   Deduplication is handled purely via React state (checked_at field).
+ *   sessionStorage is intentionally NOT used for alert suppression.
+ *
+ * Session ID:
+ *   A stable UUID is generated once per browser and stored in localStorage
+ *   under "redmind:session_id". This ensures the same session ID is sent on
+ *   every request, including polling, so the backend can resolve history
+ *   correctly and _resolve_session_id() never falls back to a per-message hash.
  */
  import { useState, useCallback, useRef, useEffect } from "react";
  import {
@@ -16,98 +21,89 @@
    DashboardPayload,
  } from "@/types/chat";
  
+ 
  // ── Constants ─────────────────────────────────────────────────────────────────
  
  const STREAM_URL    = "http://localhost:8000/chat/stream";
  const CHAT_URL      = "http://localhost:8000/chat";
  const PROACTIVE_URL = "http://localhost:8000/api/proactive-risks";
  
- // sessionStorage key for persisting seen alert IDs across polling cycles
- const SEEN_ALERTS_KEY = "redmind:seen_alert_ids";
+ const SESSION_STORAGE_KEY = "redmind:session_id";
  
  const createId = () => Math.random().toString(36).slice(2, 10);
  
- // ── Seen alerts persistence ───────────────────────────────────────────────────
+ // ── Stable session ID (persists across page reloads) ─────────────────────────
  
- function getSeenAlertIds(): Set<string> {
+ function getOrCreateSessionId(): string {
    try {
-     const raw = sessionStorage.getItem(SEEN_ALERTS_KEY);
-     return raw ? new Set(JSON.parse(raw)) : new Set();
+     const existing = localStorage.getItem(SESSION_STORAGE_KEY);
+     if (existing) return existing;
+     // crypto.randomUUID() is available in all modern browsers
+     const id = typeof crypto !== "undefined" && crypto.randomUUID
+       ? crypto.randomUUID()
+       : `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+     localStorage.setItem(SESSION_STORAGE_KEY, id);
+     return id;
    } catch {
-     return new Set();
+     // localStorage unavailable (private browsing, etc.) — use an in-memory ID
+     return `mem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
    }
- }
- 
- function addSeenAlertId(id: string): void {
-   try {
-     const ids = getSeenAlertIds();
-     ids.add(id);
-     // Keep only last 50 to prevent unbounded growth
-     const arr = Array.from(ids).slice(-50);
-     sessionStorage.setItem(SEEN_ALERTS_KEY, JSON.stringify(arr));
-   } catch {
-     // sessionStorage unavailable — degrade gracefully
-   }
- }
- 
- function hasSeenAlert(id: string): boolean {
-   return getSeenAlertIds().has(id);
  }
  
  // ── Dashboard detection ───────────────────────────────────────────────────────
  
  function extractDashboard(content: string): {
-  isDashboard: boolean;
-  payload?: DashboardPayload;
-  cleanContent?: string;
-} {
-  const trimmed = content.trim();
-
-  const DASHBOARD_TYPES = new Set([
-    "dashboard", "quick_stat", "clarification", "no_data"  // ← add these two
-  ]);
-
-  // 1. Pure JSON
-  if (trimmed.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(trimmed) as DashboardPayload;
-      if (DASHBOARD_TYPES.has(parsed.type)) {
-        return { isDashboard: true, payload: parsed, cleanContent: trimmed };
-      }
-    } catch {}
-  }
-
-  // 2. JSON in ```json ... ``` fences
-  const fenceMatch = trimmed.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-  if (fenceMatch) {
-    try {
-      const parsed = JSON.parse(fenceMatch[1]) as DashboardPayload;
-      if (DASHBOARD_TYPES.has(parsed.type)) {
-        return { isDashboard: true, payload: parsed, cleanContent: fenceMatch[1] };
-      }
-    } catch {}
-  }
-
-  // 3. JSON embedded in text — add clarification/no_data markers
-  for (const marker of [
-    '{"type":"dashboard"',    '{"type": "dashboard"',
-    '{"type":"quick_stat"',   '{"type": "quick_stat"',
-    '{"type":"clarification"','{"type": "clarification"',  // ← add
-    '{"type":"no_data"',      '{"type": "no_data"',        // ← add
-  ]) {
-    const idx = trimmed.indexOf(marker);
-    if (idx !== -1) {
-      try {
-        const parsed = JSON.parse(trimmed.slice(idx)) as DashboardPayload;
-        if (DASHBOARD_TYPES.has(parsed.type)) {
-          return { isDashboard: true, payload: parsed, cleanContent: trimmed.slice(idx) };
-        }
-      } catch {}
-    }
-  }
-
-  return { isDashboard: false };
-}
+   isDashboard: boolean;
+   payload?: DashboardPayload;
+   cleanContent?: string;
+ } {
+   const trimmed = content.trim();
+ 
+   const DASHBOARD_TYPES = new Set([
+     "dashboard", "quick_stat", "clarification", "no_data",
+   ]);
+ 
+   // 1. Pure JSON
+   if (trimmed.startsWith("{")) {
+     try {
+       const parsed = JSON.parse(trimmed) as DashboardPayload;
+       if (DASHBOARD_TYPES.has(parsed.type)) {
+         return { isDashboard: true, payload: parsed, cleanContent: trimmed };
+       }
+     } catch {}
+   }
+ 
+   // 2. JSON in ```json ... ``` fences
+   const fenceMatch = trimmed.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+   if (fenceMatch) {
+     try {
+       const parsed = JSON.parse(fenceMatch[1]) as DashboardPayload;
+       if (DASHBOARD_TYPES.has(parsed.type)) {
+         return { isDashboard: true, payload: parsed, cleanContent: fenceMatch[1] };
+       }
+     } catch {}
+   }
+ 
+   // 3. JSON embedded in text
+   for (const marker of [
+     '{"type":"dashboard"}',    '{"type": "dashboard"',
+     '{"type":"quick_stat"',    '{"type": "quick_stat"',
+     '{"type":"clarification"', '{"type": "clarification"',
+     '{"type":"no_data"',       '{"type": "no_data"',
+   ]) {
+     const idx = trimmed.indexOf(marker);
+     if (idx !== -1) {
+       try {
+         const parsed = JSON.parse(trimmed.slice(idx)) as DashboardPayload;
+         if (DASHBOARD_TYPES.has(parsed.type)) {
+           return { isDashboard: true, payload: parsed, cleanContent: trimmed.slice(idx) };
+         }
+       } catch {}
+     }
+   }
+ 
+   return { isDashboard: false };
+ }
  
  // ── Types ─────────────────────────────────────────────────────────────────────
  
@@ -129,8 +125,10 @@
    const [activeId,      setActiveId]      = useState<string | null>(null);
    const [isTyping,      setIsTyping]      = useState(false);
    const [riskAlerts,    setRiskAlerts]    = useState<RiskAlert[]>([]);
-
-   const sessionIdRef = useRef<string>("");
+ 
+   // Stable session ID — generated once, persisted in localStorage so it
+   // survives page reloads and every fetch uses the same identity.
+   const sessionIdRef = useRef<string>(getOrCreateSessionId());
  
    const conversationsRef = useRef(conversations);
    const riskAlertsRef    = useRef(riskAlerts);
@@ -145,29 +143,25 @@
    useEffect(() => {
      const checkProactiveRisks = async () => {
        try {
-        const res = await fetch(PROACTIVE_URL, {
-          headers: {
-            "X-Session-Id": sessionIdRef.current,
-          },
-        });
+         const res = await fetch(PROACTIVE_URL, {
+           headers: {
+             "X-Session-Id": sessionIdRef.current,
+           },
+         });
          if (!res.ok) return;
          const data: ProactiveRiskResponse = await res.json();
  
          if (!data.has_alert || !data.message) return;
  
-         // The deduplication key: checked_at from backend (stable hash of risk state)
          const alertKey = data.checked_at ?? null;
+         if (!alertKey) return;
  
-         if (!alertKey) return; // No key = can't deduplicate = skip
- 
-         // Check 1: already in React state (within this render cycle)
+         // Deduplicate using React state only.
+         // sessionStorage suppression was removed — it permanently blocked
+         // alerts after the first poll, even across page reloads.
          const inState = riskAlertsRef.current.some((a) => a.checked_at === alertKey);
          if (inState) return;
  
-         // Check 2: already seen in this browser session (survives polling interval)
-         if (hasSeenAlert(alertKey)) return;
- 
-         // New alert — add to state and mark as seen in sessionStorage
          const alert: RiskAlert = {
            id:              createId(),
            message:         data.message,
@@ -179,7 +173,6 @@
            read:            false,
          };
  
-         addSeenAlertId(alertKey);
          setRiskAlerts((prev) => [alert, ...prev]);
  
        } catch (e) {
@@ -187,6 +180,7 @@
        }
      };
  
+     // Fire immediately on mount — bell lights up on first load, not after 5 min
      checkProactiveRisks();
      const interval = setInterval(checkProactiveRisks, 5 * 60 * 1000);
      return () => clearInterval(interval);
@@ -313,6 +307,7 @@
          };
        })
      );
+ 
    }, []);
  
    // ── Send Message ──────────────────────────────────────────────────────────
@@ -354,9 +349,9 @@
          const res = await fetch(STREAM_URL, {
            method: "POST",
            headers: {
-            "Content-Type": "application/json",
-            "X-Session-Id": sessionIdRef.current,
-          },
+             "Content-Type": "application/json",
+             "X-Session-Id": sessionIdRef.current,
+           },
            body: JSON.stringify({ messages: fullMessages }),
          });
          if (!res.ok || !res.body) throw new Error("Stream unavailable");
@@ -435,30 +430,13 @@
            const res = await fetch(CHAT_URL, {
              method: "POST",
              headers: {
-              "Content-Type": "application/json",
-              "X-Session-Id": sessionIdRef.current,
-            },
+               "Content-Type": "application/json",
+               "X-Session-Id": sessionIdRef.current,
+             },
              body: JSON.stringify({ messages: fullMessages }),
            });
            if (!res.ok) throw new Error(await res.text());
            const data = await res.json();
-           // 🔍 DEBUG LOGS — REMOVE AFTER DEMO
-          console.log("🔍 [RISK POLL] ==============");
-          console.log("has_alert:", data.has_alert);
-          console.log("message:", data.message);
-          console.log("checked_at:", data.checked_at);
-          console.log("overall_health:", data.overall_health);
-
-          const alertKey = data.checked_at ?? null;
-          const inState = riskAlertsRef.current.some((a) => a.checked_at === alertKey);
-          const inSession = hasSeenAlert(alertKey);
-
-          console.log("alertKey:", alertKey);
-          console.log("inState:", inState);
-          console.log("inSession:", inSession);
-          console.log("Will create alert?", !inState && !inSession && data.has_alert && data.message);
-          console.log("🔍 [RISK POLL] ==============\n");
-          // END DEBUG
            appendBotMessage(currentId, botMsgId, data.reply, data.latency_ms, true);
          } catch (err) {
            console.error("[Chat] Fallback failed:", err);

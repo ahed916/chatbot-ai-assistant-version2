@@ -1,0 +1,3 @@
+The “Checkout error” bug has been created in the e‑learning platform project, assigned to Alice, marked high priority, due this Friday, and set to 20 % complete.
+
+What would you like to do next?

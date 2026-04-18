@@ -1,0 +1,10 @@
+The E‑Learning Platform project has multiple users with the Manager role:
+
+- Ahed Manager  
+- Mounir Qa  
+- Abir Mobile  
+- Alice Fullstack  
+- Amir Backend  
+- Amira Frontend  
+
+Would you like details on any of these managers’ current assignments or workload?

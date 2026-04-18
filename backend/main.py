@@ -11,12 +11,21 @@ Key improvements over previous version:
   - Conversation history: session_id flows from HTTP header → supervisor → agent
     so every agent can resolve follow-up replies (clarifications, names, etc.)
 """
+from supervisor import run_supervisor
+from conversation_manager import history_store
+from config import (
+    REDIS_DB, REDIS_HOST, REDIS_PORT,
+    RISK_SCAN_HOURS, RISK_SCAN_MINUTES,
+)
+from audit import log_event
 import asyncio
 import json
 import logging
 import time
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
+import mlflow_config
+from supabase import create_client
 
 import redis as redis_lib
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -24,14 +33,10 @@ from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
-from audit import log_event
-from config import (
-    REDIS_DB, REDIS_HOST, REDIS_PORT,
-    RISK_SCAN_HOURS, RISK_SCAN_MINUTES,
-)
-from conversation_manager import history_store
-from supervisor import run_supervisor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +48,7 @@ scheduler = AsyncIOScheduler()
 
 
 # ── Scheduler job ─────────────────────────────────────────────────────────────
+
 
 async def scheduled_risk_check():
     from agents.risk_agent import proactive_risk_check
@@ -141,7 +147,28 @@ class ChatResponse(BaseModel):
     latency_ms: float
 
 
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]  # service_role key
+
+
+class CreateUserRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/admin/create-user")
+async def create_user(req: CreateUserRequest, x_session_id: Optional[str] = Header(default=None)):
+    # TODO: verify the caller is an admin by checking their JWT
+    admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    res = admin_client.auth.admin.create_user({
+        "email": req.email,
+        "password": req.password,
+        "email_confirm": True,
+        "user_metadata": {"role": "project_manager"},
+    })
+    return {"id": res.user.id, "email": res.user.email}
 # ── Session ID helper ─────────────────────────────────────────────────────────
+
 
 def _resolve_session_id(req: ChatRequest, x_session_id: Optional[str]) -> str:
     """

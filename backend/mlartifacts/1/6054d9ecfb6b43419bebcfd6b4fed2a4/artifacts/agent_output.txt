@@ -1,0 +1,5 @@
+Closing all resolved bugs by updating their status to Closed
+
+⚠️ No issues found matching: tracker=Bug, status=Resolved.
+
+What would you like to do next?

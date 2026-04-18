@@ -1,0 +1,5 @@
+Risk 1: E-Learning Platform team overload and overdue critical items — Alice (8 issues, 2 overdue) and Abir (6 issues, 2 overdue) are blocked by stale high-priority bugs/features (#21, #22, #28, #7) with zero progress, threatening platform stability. → Immediately reassign #21 to Amir and #22 to Abir with deadline today for status update; shift one low-effort task from Alice to Ahed.
+
+Risk 2: Unassigned high-priority payment bug (#31) in web Platform — no owner risks revenue impact and customer trust. → Assign #31 to Amir Backend by end of day.
+
+Overall: System strained but salvageable. Next step: convene a 15-minute overdue triage now to assign owners and set 24-hour update commitments.

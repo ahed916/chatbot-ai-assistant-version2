@@ -606,23 +606,24 @@ def get_unassigned_issues(
         return f"Error fetching unassigned issues: {e}"
 
 
-@tool
+"""@tool
 def get_risk_overview(project_identifier: str = None) -> str:
     """
-    Generate a risk assessment combining: overdue issues, high/urgent priority,
-    unassigned open issues, and projects with no recent activity.
-    Use for: 'risk overview', 'biggest problems', 'what to fix first', 'what's at risk'.
 
-    Args:
-        project_identifier: Optional — scope to one project
-    """
-    try:
-        today = date.today().isoformat()
+# Generate a risk assessment combining: overdue issues, high/urgent priority,
+# unassigned open issues, and projects with no recent activity.
+# Use for: 'risk overview', 'biggest problems', 'what to fix first', 'what's at risk'.
+
+# Args:
+# project_identifier: Optional — scope to one project
+"""
+    #try:
+        #today = date.today().isoformat()
         week_ago = (date.today() - timedelta(days=7)).isoformat()
         project_id = rm.resolve_project_id(project_identifier) if project_identifier else None
 
         issues = rm.list_issues_filtered(
-            project_id=project_id, status="open", limit=200
+            project_id=project_id, status="open", limit=100
         )
 
         overdue = []
@@ -685,7 +686,7 @@ def get_risk_overview(project_identifier: str = None) -> str:
 
         return "\n".join(lines)
     except Exception as e:
-        return f"Error generating risk overview: {e}"
+        return f"Error generating risk overview: {e}" """
 
 
 # ── Exported list for agent creation ─────────────────────────────────────────
@@ -704,6 +705,6 @@ READ_TOOLS = [
     get_issues_by_tracker,
     get_recent_issues,
     get_unassigned_issues,
-    get_risk_overview,
+    # get_risk_overview,
 
 ]

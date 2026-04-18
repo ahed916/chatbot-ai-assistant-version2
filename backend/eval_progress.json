@@ -1,0 +1,124 @@
+{
+  "completed": {
+    "show me all open bugs": {
+      "output": "There are 28 open bugs, with 6 overdue and many currently unassigned. Notable overdue issues include #58, #37, #28, #22, #10, and #7. Several payment\u2011crash bugs in the Mobile App remain unassigned and lack due dates. Would you like me to assign any of these or set due dates?",
+      "expected_route": "direct",
+      "ground_truth": "Listed open bug issues from Redmine",
+      "category": "read",
+      "notes": "",
+      "status": "ok"
+    },
+    "who is working on issue #3?": {
+      "output": "Issue #3 doesn\u2019t exist in Redmine, so there\u2019s no assignee to report. Would you like me to look up a different issue or help you create one?",
+      "expected_route": "direct",
+      "ground_truth": "Identified the assignee of issue #3",
+      "category": "read",
+      "notes": "",
+      "status": "ok"
+    },
+    "list all issues assigned to Alice": {
+      "output": "Alice has 12 assigned issues, with 3 overdue.\n\n- Priority: 5 High, 5 Normal, 1 Low, 1 Urgent  \n- Projects: 10 E\u2011Learning Platform, 1 Mobile App, 1 web Platform  \n\nWhat would you like to tackle first\u2014clearing the overdue tickets or redistributing some work?",
+      "expected_route": "direct",
+      "ground_truth": "Listed all issues assigned to Alice Fullstack",
+      "category": "read",
+      "notes": "",
+      "status": "ok"
+    },
+    "create a high priority bug called payment crash in mobile-app": {
+      "output": "Issue #60 \"payment crash\" has been created as a high\u2011priority bug in the mobile\u2011app project. It is currently unassigned and has no due date set.\n\nWould you like to assign it to a team member or add a due date?",
+      "expected_route": "automation_agent",
+      "ground_truth": "Created a high priority bug in the mobile-app project",
+      "category": "write",
+      "notes": "",
+      "status": "ok"
+    },
+    "assign issue #999 to Amir": {
+      "output": "I found two team members that match \u201cAmir\u201d: **Amir Backend** and **Amira Frontend**. Which one should I assign issue\u202f#999 to?",
+      "expected_route": "automation_agent",
+      "ground_truth": "Gracefully reported that issue #999 does not exist",
+      "category": "write_graceful_failure",
+      "notes": "",
+      "status": "ok"
+    },
+    "assign issue #7 to Mounir and set its priority to urgent": {
+      "output": "Issue #7 has been assigned to Mounir and its priority set to Urgent. Let me know if you need any further updates or actions. Is there anything else you'd like to adjust?",
+      "expected_route": "automation_agent",
+      "ground_truth": "Updated issue #7 with new assignee and priority",
+      "category": "write",
+      "notes": "",
+      "status": "ok"
+    },
+    "what are the risks this week?": {
+      "output": "I\u2019m unable to retrieve the risk information at the moment due to a temporary issue. Please try again in a moment, and I\u2019ll provide the latest risks for this week.\n\nIs there anything else you\u2019d like me to check regarding your Redmine projects?",
+      "expected_route": "risk_agent",
+      "ground_truth": "Identified risks and overdue issues for the week",
+      "category": "risk",
+      "notes": "",
+      "status": "ok"
+    },
+    "any overdue issues?": {
+      "output": "There are 8 overdue issues, all located in the E\u2011Learning Platform project. The Mobile App and Web Platform projects currently have no overdue work. Would you like me to list the specific overdue issues or suggest actions to get them back on track?",
+      "expected_route": "risk_agent",
+      "ground_truth": "Found and listed overdue issues across projects",
+      "category": "risk",
+      "notes": "",
+      "status": "ok"
+    },
+    "show me issues due in the next 3 days": {
+      "output": "\u26a0\ufe0f I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",
+      "expected_route": "risk_agent",
+      "ground_truth": "Listed issues with deadlines in the next 3 days",
+      "category": "risk",
+      "notes": "",
+      "status": "ok"
+    },
+    "give me a project summary": {
+      "output": "\u26a0\ufe0f I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",
+      "expected_route": "dashboard_agent",
+      "ground_truth": "Showed project dashboard with KPIs and charts",
+      "category": "dashboard",
+      "notes": "",
+      "status": "ok"
+    },
+    "show me a summary of the mobile-app project": {
+      "output": "\u26a0\ufe0f I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",
+      "expected_route": "dashboard_agent",
+      "ground_truth": "Showed dashboard for the Mobile App project",
+      "category": "dashboard",
+      "notes": "",
+      "status": "ok"
+    },
+    "how is the team performing this week?": {
+      "output": "\u26a0\ufe0f I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",
+      "expected_route": "dashboard_agent",
+      "ground_truth": "Showed team performance dashboard with KPIs",
+      "category": "dashboard",
+      "notes": "",
+      "status": "ok"
+    },
+    "show me issue #7 and mark it as resolved": {
+      "output": "\u26a0\ufe0f I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",
+      "expected_route": "parallel",
+      "ground_truth": "Showed issue #7 details and updated its status to resolved",
+      "category": "parallel",
+      "notes": "",
+      "status": "ok"
+    },
+    "who is assigned to issue #3 and reassign it to Abir": {
+      "output": "\u26a0\ufe0f I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",
+      "expected_route": "parallel",
+      "ground_truth": "Showed current assignee of issue #3 and reassigned to Abir",
+      "category": "parallel",
+      "notes": "",
+      "status": "ok"
+    },
+    "what are the overdue issues and close all resolved bugs": {
+      "output": "\u26a0\ufe0f I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",
+      "expected_route": "parallel",
+      "ground_truth": "Listed overdue issues and closed all resolved bugs",
+      "category": "parallel",
+      "notes": "",
+      "status": "ok"
+    }
+  }
+}

@@ -1,0 +1,2 @@
+Issue #60 doesn’t exist in Redmine, so I can’t close it.  
+Would you like to close issue #50 only, or would you like to verify the number for issue #60?

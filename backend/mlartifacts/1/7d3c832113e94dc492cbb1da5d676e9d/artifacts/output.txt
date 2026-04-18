@@ -1,0 +1,29 @@
+There are 23 open bugs across three projects: Mobile App (9), E-Learning Platform (13), and web Platform (1). Four of these bugs are overdue.
+
+Here are the details:
+
+- #48 [High] payment crash | Mobile App | Unassigned | Due: None
+- #45 [High] payment crash | Mobile App | Unassigned | Due: None
+- #44 [High] payment crash | Mobile App | Unassigned | Due: None
+- #43 [High] payment crash | Mobile App | Unassigned | Due: None
+- #42 [High] payment crash | Mobile App | Unassigned | Due: None
+- #41 [High] payment crash | Mobile App | Unassigned | Due: None
+- #40 [High] payment crash | Mobile App | Unassigned | Due: None
+- #39 [High] payment crash | Mobile App | Unassigned | Due: None
+- #38 [High] payment crash | Mobile App | Unassigned | Due: None
+- #37 [High] Checkout error | E-Learning Platform | Alice Fullstack | Due: 2026-04-12 ⚠️
+- #36 [Normal] Fix login | E-Learning Platform | Alice Fullstack | Due: None
+- #31 [High] Fix payment bug | web Platform | Unassigned | Due: None
+- #28 [High] Course search returns incorrect results when using filters | E-Learning Platform | Alice Fullstack | Due: 2026-04-10 ⚠️
+- #25 [Very Low] Fix typo in landing page footer text | E-Learning Platform | Amir  Backend | Due: 2026-05-01
+- #22 [High] Video streaming freezes on slow internet connections | E-Learning Platform | Abir Mobile | Due: 2026-03-15 ⚠️
+- #12 [Normal] Students don't receive course update notifications | E-Learning Platform | Amir  Backend | Due: None
+- #11 [High] Course dashboard layout broken on tablets (768px-1024px) | E-Learning Platform | Abir Mobile | Due: None
+- #10 [High] Payment processing times out for courses over $100 | E-Learning Platform | Amira Frontend | Due: 2026-04-17
+- #9 [Urgent] XSS vulnerability in course discussion forum | E-Learning Platform | Alice Fullstack | Due: None
+- #8 [Urgent] Course completion certificate shows wrong student name | E-Learning Platform | Amira Frontend | Due: None
+- #7 [High] Mobile app crashes when enrolling in course with >50 lessons | E-Learning Platform | Abir Mobile | Due: 2026-04-11 ⚠️
+- #6 [Normal] Course progress bar shows incorrect percentage | E-Learning Platform | Alice Fullstack | Due: None
+- #4 [High] Video player crashes on iOS Safari when switching to fullscreen | E-Learning Platform | Amir  Backend | Due: None
+
+Would you like me to take any action on this?

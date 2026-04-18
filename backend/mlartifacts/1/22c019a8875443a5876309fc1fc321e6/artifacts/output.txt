@@ -1,0 +1,5 @@
+- Six E‑Learning Platform tasks are overdue, with the oldest (#21) delayed by 44 days and the newest (#37) by 1 day.  
+- The overdue items span backend, mobile, frontend, and full‑stack work, affecting chat functionality, video streaming, search accuracy, homepage performance, app stability, and checkout.  
+- All six issues are currently blocking on‑time delivery and should be addressed in order of severity and impact.  
+- Prioritize resolving the real‑time chat and video‑streaming defects first, followed by the search and homepage optimizations, then the mobile crash and checkout error.  
+- Assign clear owners and set interim checkpoints to regain schedule confidence.

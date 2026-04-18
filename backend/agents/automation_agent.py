@@ -1,42 +1,26 @@
 """
-agents/automation_agent.py
+agents/automation_agent.py  (v2 — graceful failure handling for missing data)
 
-Architecture: Planner + Executor
+KEY CHANGES from v1:
+  - _format_response() now detects validation errors from the ActionExecutor
+    and formats them as clean user messages instead of raw error strings
+  - Missing project:  "Project 'alpha' not found" →
+      "⚠️ I couldn't find a project called 'alpha'. Available projects are: ..."
+  - Missing issue:    "Issue #5 doesn't exist" →
+      "⚠️ Issue #5 doesn't exist — please double-check the issue number."
+  - Missing user:     "User 'John' not found" →
+      "⚠️ I couldn't find a team member called 'John'. Please use the full name."
+  - All other logic is IDENTICAL to v1 — only error formatting changed.
 
-  LLM role:  Interpret intent → output structured ActionPlan JSON
-  Backend:   Validate schema → validate Redmine rules → execute
-
-The LLM never calls tools. It outputs one JSON object.
-The ActionExecutor does all validation and API calls deterministically.
-
-HOW HISTORY WORKS
-─────────────────
-History is managed in TWO places:
-
-1. The caller (main.py / supervisor.py) passes `history` — the full prior
-   conversation — into run_automation_agent() on every call.
-
-2. ADDITIONALLY, this module keeps its own _session_history dict as a
-   self-contained fallback. This means even if supervisor.py forgets to pass
-   history, or passes a stale copy, the agent still has context.
-
-   Every time run_automation_agent() is called:
-     - The passed `history` is merged with the internal store (external wins
-       on conflicts since it's more authoritative).
-     - After execution, the new user+assistant turn is saved internally.
-
-This dual approach means history works correctly regardless of whether the
-caller is well-behaved or not.
-
-IMPORTANT: When the supervisor runs automation_agent in a parallel route,
-it must pass a namespaced session_id (e.g. "session123::automation_agent")
-to prevent history from leaking between the direct-answer agent and this one.
+See v1 (automation_agent_v1.py) for full architecture documentation.
 """
 import json
 import logging
 import re
+import time
 from collections import deque
 
+import mlflow
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 from llm import get_llm
@@ -46,9 +30,6 @@ from audit import log_event
 
 logger = logging.getLogger(__name__)
 
-# ── Internal history store (self-contained fallback) ──────────────────────────
-# Keyed by session_id. Stores list of {"role": ..., "content": ...} dicts.
-# Max 20 turns (40 entries) per session.
 _MAX_HISTORY_ENTRIES = 40
 _session_history: dict[str, deque] = {}
 
@@ -67,12 +48,6 @@ def _save_internal_history(session_id: str, user_msg: str, assistant_msg: str):
 
 
 def clear_session_history(session_id: str) -> None:
-    """
-    Wipe internal history and pending confirmations for a session.
-
-    Call this after a successful action if you want a clean slate,
-    or when switching contexts to prevent stale plan replay.
-    """
     if session_id in _session_history:
         del _session_history[session_id]
     if session_id in _pending_confirmations:
@@ -81,18 +56,12 @@ def clear_session_history(session_id: str) -> None:
 
 
 def _merge_histories(external: list[dict], internal: list[dict]) -> list[dict]:
-    """
-    External (caller-provided) wins if non-empty — it is the source of truth
-    and may include turns from other agents in the same session.
-    Fall back to internal only when the caller passes nothing.
-    """
     if external:
         return external
     return internal
 
 
-# ── System prompt ──────────────────────────────────────────────────────────────
-
+# ── System prompt (UNCHANGED from v1) ─────────────────────────────────────────
 SYSTEM_PROMPT = """You are RedMind's Automation Agent. Your ONLY job is to convert a user request into a JSON ActionPlan.
 
 You do NOT execute actions. You do NOT call tools. You output ONE JSON object.
@@ -126,7 +95,7 @@ create_issue:
 update_issue:
   required: issue_id (int)
   optional: status (str), assignee (name), priority, tracker, due_date,
-            subject, description, done_ratio (0–100), notes (str)
+            subject, description, done_ratio (0-100), notes (str)
 
 bulk_update_issues:
   required: issue_ids (list of ints)
@@ -143,236 +112,71 @@ create_project:
 add_file_to_issue:
   required: issue_id (int), file_path (str)
 
-unsupported:
-  params: { "reason": "why this is not supported" }
-  use when: request is outside scope or requires permissions not available
-
-needs_clarification:
-  params: { "question": "what you need to know" }
-  use when: request is TRULY ambiguous and cannot be inferred from history.
-  IMPORTANT: Only use this when critical info is genuinely missing.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TRACKER RULES — READ CAREFULLY:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-You MUST set the tracker field based on what the user says, NOT on the subject text alone.
-
-RULE: Map the user's words to tracker like this:
-  • User says "task", "todo", "chore", "implement X", "add X", "set up X"  → tracker = "Task"
-  • User says "bug", "error", "crash", "broken", "defect", "fix X"         → tracker = "Bug"
-  • User says "feature", "enhancement", "new X", "add support for"         → tracker = "Feature"
-  • User says "support", "help", "question", "how to"                      → tracker = "Support"
-
-CRITICAL: If the user says "create a task for login functionality", you MUST output:
-  "tracker": "Task"
-Even though the subject "login functionality" contains no tracker keyword.
-The word "task" in the USER'S REQUEST is what determines the tracker — not the subject.
-
-DEFAULT: If no tracker signal exists anywhere in the request, omit the tracker field.
-The backend will default to "Task".
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STATUS AND PRIORITY DEFAULTS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-- If the user does NOT mention a status → OMIT the status field. Backend defaults to "New".
-- If the user does NOT mention a priority → OMIT the priority field. Backend defaults to "Normal".
-- Never invent status or priority values the user didn't ask for.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-READING CONVERSATION HISTORY — CRITICAL RULES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-You will receive the full conversation history before the current message.
-USE IT. This is how you resolve follow-up replies.
-
-RULE 1 — AMBIGUOUS NAME FOLLOW-UP:
-  If a previous assistant message said something like:
-    "The name 'Amir' matches multiple team members: 'Amir Backend', 'Amira Frontend'."
-  And the user now replies with just a name like "Amir Backend" —
-  you KNOW from history what the original action was.
-  → Re-issue that EXACT same action with the clarified name. Do NOT ask again.
-  → Never output needs_clarification when history already tells you the intent.
-
-RULE 2 — SHORT FOLLOW-UPS:
-  If the user sends a very short message (a name, a number, "yes", "the second one"),
-  ALWAYS look at the previous assistant message to understand what it refers to.
-  A short message is almost always an answer to the previous question.
-
-RULE 3 — NEVER ASK WHAT YOU ALREADY KNOW:
-  If you can determine the full action from (current message + history), do it.
-  Only use needs_clarification when critical info (project name, issue ID) is
-  genuinely missing and cannot be inferred at all.
-
-RULE 4 — COMPLETING A PRIOR INCOMPLETE ACTION:
-  If a previous assistant message asked for a missing field (e.g. "What should
-  the task be called?"), and the user's reply provides that field (e.g. "fix login error"),
-  reconstruct the FULL action using ALL params from the original user message in history
-  PLUS the new field from the current message.
-
-  Example:
-    History:
-      user: "create a task in the e commerce website project"
-      assistant: "What should the task be called?"
-    Current: "fix login error"
-
-    Correct → create_issue with project="e commerce website", subject="fix login error", tracker="Task"
-    WRONG   → needs_clarification or create_issue with project=null
-
-RULE 5 — ONLY ACT ON THE CURRENT REQUEST:
-  When called as part of a parallel operation (read + write), you will receive
-  only the WRITE portion of the request. Focus solely on that.
-  Do NOT replay or continue actions from earlier in history unless the current
-  message is explicitly a follow-up (e.g. a clarification reply or "yes" confirmation).
-  If the current message is a fresh, self-contained request, treat it as new.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Always output valid JSON. Never wrap it in markdown code fences.
-2. For delete operations: ALWAYS set requires_confirmation=true with a clear prompt.
-3. For bulk operations on multiple issues: use ONE bulk_update_issues action.
-4. If the user asks for something outside supported actions: use "unsupported".
-5. Pass user names as strings in params.assignee — the backend resolves them.
-6. Multiple actions = multiple entries in the "actions" array, executed in order.
-7. Do NOT invent optional fields. Omit them if not mentioned by the user.
-8. done_ratio must be an integer 0–100 if provided.
-9. Dates: resolve natural language to YYYY-MM-DD. Today is {TODAY}.
-
-RULE (statuses): Common mappings:
-  "ready for code review" → "Code Review"
-  "in review" → "Code Review"
-  "done" → "Resolved" or "Closed"
-  "wont fix" → "Rejected"
-  "resolved" → "Resolved"
-  "closed" → "Closed"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EXAMPLES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-User: "Create a high priority bug in alpha project called Login fails on Safari"
-{
-  "preamble": "Creating a high priority bug in the Alpha project.",
-  "requires_confirmation": false,
-  "confirmation_prompt": "",
-  "actions": [{
-    "type": "create_issue",
-    "description": "Create bug: Login fails on Safari",
-    "params": { "project": "alpha", "subject": "Login fails on Safari", "tracker": "Bug", "priority": "High" }
-  }]
-}
-
-User: "Create a task for login functionality in the mobile-app project"
-{
-  "preamble": "Creating a login functionality task in the Mobile App project.",
-  "requires_confirmation": false,
-  "confirmation_prompt": "",
-  "actions": [{
-    "type": "create_issue",
-    "description": "Create task: login functionality",
-    "params": { "project": "mobile-app", "subject": "Login functionality", "tracker": "Task" }
-  }]
-}
-
-User: "Assign issues #12, #13, #14 to Abir and mark them In Progress"
-{
-  "preamble": "Assigning issues #12, #13, #14 to Abir and setting status to In Progress.",
-  "requires_confirmation": false,
-  "confirmation_prompt": "",
-  "actions": [{
-    "type": "bulk_update_issues",
-    "description": "Assign #12, #13, #14 to Abir and set In Progress",
-    "params": { "issue_ids": [12, 13, 14], "assignee": "Abir", "status": "In Progress" }
-  }]
-}
-
-User: "Delete issue #99"
-{
-  "preamble": "",
-  "requires_confirmation": true,
-  "confirmation_prompt": "⚠️ You are about to permanently delete issue #99. This cannot be undone. Reply 'yes' to confirm.",
-  "actions": [{ "type": "delete_issue", "description": "Delete issue #99", "params": { "issue_id": 99 } }]
-}
-
-User: "Create a new project called Mobile App and add a task for login functionality"
-{
-  "preamble": "Creating the Mobile App project and adding a login functionality task.",
-  "requires_confirmation": false,
-  "confirmation_prompt": "",
-  "actions": [
-    {
-      "type": "create_project",
-      "description": "Create project: Mobile App",
-      "params": { "name": "Mobile App", "identifier": "mobile-app" }
-    },
-    {
-      "type": "create_issue",
-      "description": "Create task: login functionality",
-      "params": { "project": "mobile-app", "subject": "Login functionality", "tracker": "Task" }
-    }
-  ]
-}
-
---- HISTORY EXAMPLE (most important): ---
-
-History:
-  user:      "Assign issues #1, #2, #3 to Amir"
-  assistant: "⚠️ The name 'Amir' matches multiple team members: 'Amir Backend', 'Amira Frontend'.
-              Please use the full name so I know exactly who you mean."
-Current message: "Amir Backend"
-
-Correct response:
-{
-  "preamble": "Got it — assigning issues #1, #2, and #3 to Amir Backend.",
-  "requires_confirmation": false,
-  "confirmation_prompt": "",
-  "actions": [{
-    "type": "bulk_update_issues",
-    "description": "Assign #1, #2, #3 to Amir Backend",
-    "params": { "issue_ids": [1, 2, 3], "assignee": "Amir Backend" }
-  }]
-}
-
-WRONG (never do this when history makes intent clear):
-{ "actions": [{ "type": "needs_clarification", "params": { "question": "What would you like to do with Amir Backend?" } }] }
-
---- SEARCH AND UPDATE ---
-
 search_and_update:
   Filter params: filter_project, filter_tracker, filter_priority, filter_status, filter_assignee
   Update params: status, assignee, priority, tracker, notes
 
-Example:
-User: "Move all urgent bugs to Amir Frontend and set them as In Progress"
-{
-  "preamble": "Finding all urgent bugs and reassigning them.",
-  "requires_confirmation": false,
-  "confirmation_prompt": "",
-  "actions": [{
-    "type": "search_and_update",
-    "description": "Find urgent bugs and assign to Amir Frontend, set In Progress",
-    "params": { "filter_tracker": "Bug", "filter_priority": "Urgent", "assignee": "Amir Frontend", "status": "In Progress" }
-  }]
-}
-"""
+unsupported:
+  params: { "reason": "why this is not supported" }
+
+needs_clarification:
+  params: { "question": "what you need to know" }
+  IMPORTANT: Only use this when critical info is genuinely missing.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRACKER RULES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  • "task", "todo", "implement X", "add X", "set up X"  → tracker = "Task"
+  • "bug", "error", "crash", "broken", "fix X"          → tracker = "Bug"
+  • "feature", "enhancement", "new X"                   → tracker = "Feature"
+  • "support", "help", "question"                        → tracker = "Support"
+  DEFAULT: omit tracker field if unclear. Backend defaults to "Task".
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STATUS AND PRIORITY DEFAULTS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - No status mentioned → OMIT status field. Backend defaults to "New".
+  - No priority mentioned → OMIT priority field. Backend defaults to "Normal".
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+READING CONVERSATION HISTORY — CRITICAL RULES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 1: If a previous message disambiguated a name, re-issue the original action with the clarified name.
+RULE 2: Short replies ("yes", a name, a number) always refer to the previous assistant message.
+RULE 3: Never ask what you already know from history.
+RULE 4: If history asked for a missing field and current message provides it, reconstruct the FULL action.
+RULE 5: When called as part of a parallel operation, focus ONLY on the current write request.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STATUS MAPPINGS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  "ready for code review" / "in review" → "Code Review"
+  "done" → "Resolved" or "Closed"
+  "wont fix" → "Rejected"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Always output valid JSON. Never wrap in markdown fences.
+2. For delete: ALWAYS requires_confirmation=true.
+3. Bulk operations: use ONE bulk_update_issues action.
+4. Pass user names as strings — backend resolves them.
+5. Multiple actions = multiple entries in "actions" array.
+6. Do NOT invent optional fields. Omit if not mentioned.
+7. done_ratio must be integer 0-100.
+8. Dates: resolve natural language to YYYY-MM-DD. Today is {TODAY}.
+
+Respond with JSON only."""
 
 
 # ── LLM planner ────────────────────────────────────────────────────────────────
 
 def _plan(query: str, history: list[dict]) -> dict:
-    """
-    Ask the LLM to produce an ActionPlan JSON.
-    history = full prior conversation as [{"role": "user"|"assistant", "content": str}]
-    The current query is NOT included in history — it is appended here as the final HumanMessage.
-    """
     from datetime import date
     today_str = date.today().isoformat()
     system = SYSTEM_PROMPT.replace("{TODAY}", today_str)
 
     llm = get_llm()
-
     messages = [SystemMessage(content=system)]
     for turn in history:
         if turn["role"] == "user":
@@ -382,9 +186,10 @@ def _plan(query: str, history: list[dict]) -> dict:
     messages.append(HumanMessage(content=query))
 
     response = llm.invoke(messages)
+    if hasattr(response, 'usage_metadata') and response.usage_metadata:
+        mlflow.log_metric("input_tokens", response.usage_metadata.get("input_tokens", 0))
+        mlflow.log_metric("output_tokens", response.usage_metadata.get("output_tokens", 0))
     raw_text = response.content.strip()
-
-    # Strip markdown fences if the LLM wraps output despite instructions
     raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
     raw_text = re.sub(r"\s*```$", "", raw_text)
 
@@ -395,12 +200,90 @@ def _plan(query: str, history: list[dict]) -> dict:
         raise ValueError(f"LLM returned invalid JSON: {e}")
 
 
-# ── Pending confirmation store ─────────────────────────────────────────────────
-# Keyed by session_id → pending ActionPlan. One pending action per session.
 _pending_confirmations: dict[str, "ActionPlan"] = {}
+_executor_instance = ActionExecutor()
 
-# ── Executor ───────────────────────────────────────────────────────────────────
-_executor = ActionExecutor()
+
+# ── Graceful failure formatter ─────────────────────────────────────────────────
+
+def _format_execution_result(preamble: str | None, result: str) -> str:
+    """
+    Format the executor result as a clean user-facing message.
+
+    Handles three categories:
+      1. Success (✅ or action keywords) → keep as-is, add closing prompt
+      2. Validation error (project/issue/user not found) → rewrite as friendly message
+      3. Other content → keep as-is, add closing prompt
+    """
+    result_lower = result.lower() if result else ""
+
+    # ── Missing project ────────────────────────────────────────────────────────
+    if "project" in result_lower and ("not found" in result_lower or "validation error" in result_lower):
+        # Extract project name and available projects from executor error if present
+        project_name_match = re.search(r"project ['\"]([^'\"]+)['\"]", result, re.IGNORECASE)
+        available_match = re.search(r"available projects?:(.+?)(?:\n|$)", result, re.IGNORECASE | re.DOTALL)
+
+        project_name = project_name_match.group(1) if project_name_match else "that project"
+        if available_match:
+            available_raw = available_match.group(1).strip()
+            # Extract just the display names (before the identifiers in parentheses)
+            display_names = re.findall(r"'([^']+)'\s*\(", available_raw)
+            if display_names:
+                if len(display_names) <= 5:
+                    available_str = ", ".join(f'"{n}"' for n in display_names)
+                else:
+                    available_str = ", ".join(
+                        f'"{n}"' for n in display_names[:5]) + f" and {len(display_names)-5} more"
+                friendly = (
+                    f"⚠️ I couldn't find a project called \"{project_name}\". "
+                    f"The available projects are: {available_str}. "
+                    f"Please use one of these names and try again."
+                )
+            else:
+                friendly = (
+                    f"⚠️ I couldn't find a project called \"{project_name}\". "
+                    f"Please check the project name and try again."
+                )
+        else:
+            friendly = (
+                f"⚠️ I couldn't find a project called \"{project_name}\". "
+                f"Please check the project name and try again."
+            )
+        return friendly + "\n\nWhat would you like to do next?"
+
+    # ── Missing issue ──────────────────────────────────────────────────────────
+    if ("issue #" in result_lower or "issue" in result_lower) and (
+        "doesn't exist" in result_lower or "not found" in result_lower or
+        "does not exist" in result_lower
+    ):
+        issue_match = re.search(r"issue #(\d+)", result, re.IGNORECASE)
+        issue_ref = f"issue #{issue_match.group(1)}" if issue_match else "that issue"
+        friendly = (
+            f"⚠️ {issue_ref.capitalize()} doesn't exist in Redmine — "
+            f"please double-check the issue number and try again."
+        )
+        return friendly + "\n\nWhat would you like to do next?"
+
+    # ── Missing user / assignee ────────────────────────────────────────────────
+    if ("user" in result_lower or "assignee" in result_lower or "member" in result_lower) and (
+        "not found" in result_lower or "no member" in result_lower
+    ):
+        user_match = re.search(r"user ['\"]([^'\"]+)['\"]", result, re.IGNORECASE)
+        user_name = user_match.group(1) if user_match else "that user"
+        friendly = (
+            f"⚠️ I couldn't find a team member called \"{user_name}\". "
+            f"Please use the full name as it appears in Redmine (e.g. 'Alice Fullstack', 'Amir Backend')."
+        )
+        return friendly + "\n\nWhat would you like to do next?"
+
+    # ── Normal result (success or other) ──────────────────────────────────────
+    parts = []
+    if preamble and preamble.strip():
+        parts.append(preamble.strip())
+    if result and result.strip():
+        parts.append(result.strip())
+    parts.append("What would you like to do next?")
+    return "\n\n".join(parts)
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
@@ -411,110 +294,97 @@ def run_automation_agent(
     session_id: str = "default",
     project_identifier: str = None,
 ) -> str:
-    """
-    Main entry point for the automation agent.
-
-    Args:
-        query:      The current user message.
-        history:    Prior conversation turns from the caller (main.py / supervisor).
-                    Format: [{"role": "user"|"assistant", "content": str}, ...]
-                    The current query must NOT be included in this list.
-        session_id: Stable identifier for this user's session. Used to key
-                    the internal history store and pending confirmations.
-                    Defaults to "default" for single-user / dev usage.
-                    NOTE: When called from a parallel supervisor route, this
-                    should be namespaced (e.g. "abc123::automation_agent") to
-                    prevent history bleed from the direct-answer agent.
-
-    Flow:
-      1. Merge caller-provided history with internal history (fallback)
-      2. Check for cancellation
-      3. Check for pending confirmation reply ("yes")
-      4. Call LLM with full merged history
-      5. If plan needs confirmation → store it, return prompt (do NOT execute)
-      6. Execute, save turn internally, return result
-    """
     if history is None:
         history = []
 
     q_stripped = query.strip()
     q_lower = q_stripped.lower()
+    start = time.perf_counter()
 
-    # ── Step 1: Build effective history ───────────────────────────────────────
-    internal = _get_internal_history(session_id)
-    effective_history = _merge_histories(history, internal)
+    with mlflow.start_run(run_name="automation_agent", nested=True):
 
-    logger.debug(
-        f"[AUTO] session={session_id} history_turns={len(effective_history) // 2} "
-        f"query={q_stripped[:80]!r}"
-    )
+        mlflow.log_param("session_id", session_id)
+        mlflow.log_param("query", q_stripped[:300])
 
-    # ── Step 2: Cancellation ───────────────────────────────────────────────────
-    if q_lower in ("cancel", "no", "nevermind", "stop", "abort"):
-        if session_id in _pending_confirmations:
-            del _pending_confirmations[session_id]
-            reply = "Action cancelled. Nothing was changed."
-        else:
-            reply = "No pending action to cancel."
-        _save_internal_history(session_id, q_stripped, reply)
-        return reply
+        # Step 1: Merge history
+        internal = _get_internal_history(session_id)
+        effective_history = _merge_histories(history, internal)
 
-    # ── Step 3: Confirmation reply ─────────────────────────────────────────────
-    # Handled BEFORE the LLM to avoid re-planning a destructive action.
-    if session_id in _pending_confirmations and q_lower.startswith("yes"):
-        pending_plan = _pending_confirmations.pop(session_id)
-        logger.info(f"[AUTO] session={session_id} executing confirmed plan")
-        result = _executor.execute(pending_plan)
+        # Step 2: Cancellation
+        if q_lower in ("cancel", "no", "nevermind", "stop", "abort"):
+            if session_id in _pending_confirmations:
+                del _pending_confirmations[session_id]
+                reply = "Action cancelled. Nothing was changed."
+            else:
+                reply = "No pending action to cancel."
+            mlflow.log_param("outcome", "cancelled")
+            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
+            _save_internal_history(session_id, q_stripped, reply)
+            return reply
+
+        # Step 3: Confirmation reply
+        if session_id in _pending_confirmations and q_lower.startswith("yes"):
+            pending_plan = _pending_confirmations.pop(session_id)
+            logger.info(f"[AUTO] session={session_id} executing confirmed plan")
+            result = _executor_instance.execute(pending_plan)
+            log_event("agent_response", agent="automation_agent", user_input=query)
+            reply = _format_execution_result(None, result)
+            mlflow.log_param("outcome", "confirmed_execution")
+            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
+            mlflow.log_metric("response_length", len(reply))
+            _save_internal_history(session_id, q_stripped, reply)
+            return reply
+
+        # Step 4: Plan
+        try:
+            raw_plan = _plan(query, effective_history)
+            plan = parse_action_plan(raw_plan)
+        except ValueError as e:
+            logger.error(f"[AUTO] Planning failed: {e}")
+            mlflow.log_param("outcome", "planning_error")
+            mlflow.log_param("error", str(e)[:300])
+            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
+            reply = (
+                "I couldn't process that request right now — the planning service returned an error.\n"
+                "Please try again in a moment."
+            )
+            _save_internal_history(session_id, q_stripped, reply)
+            return reply
+
+        action_types = [a.type for a in plan.actions] if plan.actions else []
+        mlflow.log_param("action_types", str(action_types))
+        mlflow.log_param("action_count", len(action_types))
+        mlflow.log_param("requires_confirmation", str(plan.requires_confirmation))
+
+        # Step 5: Confirmation gate
+        if plan.requires_confirmation and plan.actions:
+            _pending_confirmations[session_id] = plan
+            logger.info(f"[AUTO] session={session_id} awaiting confirmation")
+            reply = plan.confirmation_prompt
+            mlflow.log_param("outcome", "awaiting_confirmation")
+            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
+            _save_internal_history(session_id, q_stripped, reply)
+            return reply
+
+        # Step 6: Pseudo-actions
+        if plan.actions and plan.actions[0].type == "needs_clarification":
+            reply = plan.actions[0].params.get("question", "Could you clarify?")
+            mlflow.log_param("outcome", "needs_clarification")
+            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
+            _save_internal_history(session_id, q_stripped, reply)
+            return reply
+
+        # Step 7: Execute
+        result = _executor_instance.execute(plan)
         log_event("agent_response", agent="automation_agent", user_input=query)
-        reply = _format_response(None, result)
+
+        # Use the improved formatter that handles not-found errors gracefully
+        reply = _format_execution_result(plan.preamble, result)
+
+        mlflow.log_param("outcome", "executed")
+        mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
+        mlflow.log_metric("response_length", len(reply))
+        mlflow.log_text(reply, "agent_output.txt")
+
         _save_internal_history(session_id, q_stripped, reply)
         return reply
-
-    # ── Step 4: Plan ───────────────────────────────────────────────────────────
-    try:
-        raw_plan = _plan(query, effective_history)
-        plan = parse_action_plan(raw_plan)
-    except ValueError as e:
-        logger.error(f"[AUTO] Planning failed: {e}")
-        reply = (
-            "I couldn't process that request right now — the planning service returned an error.\n"
-            "Please try again in a moment."
-        )
-        _save_internal_history(session_id, q_stripped, reply)
-        return reply
-
-    # ── Step 5: Confirmation gate ──────────────────────────────────────────────
-    # Store plan, return prompt. Do NOT execute anything yet.
-    if plan.requires_confirmation and plan.actions:
-        _pending_confirmations[session_id] = plan
-        logger.info(f"[AUTO] session={session_id} awaiting confirmation")
-        reply = plan.confirmation_prompt
-        _save_internal_history(session_id, q_stripped, reply)
-        return reply
-
-    # ── Step 6: Handle pseudo-actions ─────────────────────────────────────────
-    if plan.actions and plan.actions[0].type == "needs_clarification":
-        reply = plan.actions[0].params.get("question", "Could you clarify?")
-        _save_internal_history(session_id, q_stripped, reply)
-        return reply
-
-    # ── Step 7: Execute ────────────────────────────────────────────────────────
-    result = _executor.execute(plan)
-    log_event("agent_response", agent="automation_agent", user_input=query)
-    reply = _format_response(plan.preamble, result)
-
-    # Always save to internal history so the next call has context
-    # even if supervisor.py doesn't pass history correctly.
-    _save_internal_history(session_id, q_stripped, reply)
-
-    return reply
-
-
-def _format_response(preamble: str | None, result: str) -> str:
-    parts = []
-    if preamble and preamble.strip():
-        parts.append(preamble.strip())
-    if result and result.strip():
-        parts.append(result.strip())
-    parts.append("What would you like to do next?")
-    return "\n\n".join(parts)

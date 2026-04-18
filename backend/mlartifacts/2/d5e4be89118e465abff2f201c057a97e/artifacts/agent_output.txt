@@ -1,0 +1,7 @@
+Updating issue #7 status to Resolved
+
+⚠️ Issue #7 can't be moved from 'New' to that status.
+The allowed next statuses from 'New' are: New, In Progress, Closed, Rejected, Blocked.
+This is controlled by the workflow rules set by your Redmine admin.
+
+What would you like to do next?

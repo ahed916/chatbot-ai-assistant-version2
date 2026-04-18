@@ -1,0 +1,3 @@
+The bug “Login page crash” has been created as issue #57 in the Web Platform project with high priority. It is currently unassigned and has no due date set.  
+
+What would you like to do next?

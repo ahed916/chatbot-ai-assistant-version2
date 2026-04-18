@@ -1,0 +1,11 @@
+The e-learning platform project has the following members:
+
+- Ahed Manager
+- Mounir Qa
+- Abir Mobile
+- Alice Fullstack
+- Amir Backend
+- Amira Frontend
+- Four additional members whose names are not available in the system.
+
+Would you like me to take any action on this?

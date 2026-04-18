@@ -1,0 +1,3 @@
+Issue 12 is a closed bug in the E‑Learning Platform concerning missing course‑update notifications. It was reported on March 3 2026, assigned to Amir Backend, and marked with Normal priority. No due date or time logged is recorded for the issue.  
+
+What would you like to do next?

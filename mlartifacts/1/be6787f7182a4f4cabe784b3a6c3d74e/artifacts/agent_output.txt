@@ -1,0 +1,15 @@
+Creating a bug issue as requested.
+
+✅ Issue #58 created: "Checkout error"
+
+   Project:  e learning platform 
+
+   Tracker:  Bug
+
+   Priority: High
+
+   Assignee: Alice
+
+   Due date: 2026-04-17
+
+What would you like to do next?

@@ -1,0 +1,1 @@
+Create a new bug called "Login page crash" in project web platform with high priority

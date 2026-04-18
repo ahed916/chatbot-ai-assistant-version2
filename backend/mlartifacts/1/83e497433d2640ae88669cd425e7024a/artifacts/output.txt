@@ -1,0 +1,5 @@
+I checked the system and found six overdue issues, all in the E‑Learning Platform project. The oldest are #21 (Add real‑time chat between students and instructors) and #22 (Video streaming freezes on slow internet connections), which are 45 and 30 days late, respectively. The other overdue items are #28 (Course search returns incorrect results when using filters), #24 (Optimize homepage loading speed by lazy loading images – already closed but after its due date), #7 (Mobile app crashes when enrolling in a course with more than 50 lessons), and #37 (Checkout error).  
+
+I also attempted to close any resolved bugs by setting their status to Closed, but there are currently no bugs in the “Resolved” status, so no action was needed there.  
+
+Would you like me to prioritize any of these overdue issues for you?

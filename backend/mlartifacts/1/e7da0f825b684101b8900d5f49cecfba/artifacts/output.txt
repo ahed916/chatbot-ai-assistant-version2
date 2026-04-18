@@ -1,0 +1,8 @@
+- #21: Real‑time chat feature for the e‑learning platform is 45 days overdue (Amir, Backend).  
+- #22: Video streaming freezes on slow connections are 30 days overdue (Abir, Mobile).  
+- #28: Course search returns incorrect results with filters, 4 days overdue (Alice, Fullstack).  
+- #24: Homepage image lazy‑loading optimization is 4 days overdue (Amira, Frontend) – currently marked Closed.  
+- #7: Mobile app crashes when enrolling in courses with >50 lessons, 3 days overdue (Abir, Mobile).  
+- #37: Checkout error is 2 days overdue (Alice, Fullstack).  
+
+All six items are impacting on‑time delivery and should be prioritized for resolution.

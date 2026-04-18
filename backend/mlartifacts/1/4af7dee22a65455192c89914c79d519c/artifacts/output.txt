@@ -1,0 +1,5 @@
+- Six overdue tasks are currently delaying the e‑learning platform release, with the oldest item (real‑time chat) 45 days past due.  
+- The video‑streaming freeze issue (30 days overdue) and the course‑search filter bug (4 days overdue) are actively impacting user experience.  
+- Homepage‑speed optimization, though marked closed, remains overdue and may indicate a gap in tracking completion.  
+- Mobile app crashes on large‑enrollment courses and checkout errors are both overdue by ≤3 days, posing immediate reliability risks.  
+- Collectively, these blockers threaten on‑time delivery and should be prioritized for immediate resolution and resource reallocation.

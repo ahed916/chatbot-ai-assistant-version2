@@ -1,0 +1,31 @@
+Here are the bugs currently tracked:
+
+- #58 [High] Checkout error – Alice Fullstack  
+- #57 [High] Login page crash – Unassigned  
+- #54 [High] payment crash – Unassigned  
+- #51 [High] payment crash – Unassigned  
+- #48 [High] payment crash – Unassigned  
+- #45 [High] payment crash – Unassigned  
+- #44 [High] payment crash – Unassigned  
+- #43 [High] payment crash – Unassigned  
+- #42 [High] payment crash – Unassigned  
+- #41 [High] payment crash – Unassigned  
+- #40 [High] payment crash – Unassigned  
+- #39 [High] payment crash – Unassigned  
+- #38 [High] payment crash – Unassigned  
+- #37 [High] Checkout error – Alice Fullstack  
+- #36 [Normal] Fix login – Alice Fullstack  
+- #31 [High] Fix payment bug – Unassigned  
+- #28 [High] Course search returns incorrect results when using filters – Alice Fullstack  
+- #25 [Very Low] Fix typo in landing page footer text – Amir Backend  
+- #22 [High] Video streaming freezes on slow internet connections – Abir Mobile  
+- #12 [Normal] Students don't receive course update notifications – Amir Backend  
+- #11 [High] Course dashboard layout broken on tablets (768px‑1024px) – Abir Mobile  
+- #10 [High] Payment processing times out for courses over $100 – Amira Frontend  
+- #9 [Urgent] XSS vulnerability in course discussion forum – Alice Fullstack  
+- #8 [Urgent] Course completion certificate shows wrong student name – Amira Frontend  
+- #7 [Urgent] Mobile app crashes when enrolling in course with >50 lessons – Mounir Qa  
+- #6 [Normal] Course progress bar shows incorrect percentage – Alice Fullstack  
+- #4 [High] Video player crashes on iOS Safari when switching to fullscreen – Amir Backend  
+
+Would you like me to assign any of these bugs or check their status?

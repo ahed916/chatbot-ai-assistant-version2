@@ -1,0 +1,48 @@
+inputs,outputs,expected_route,ground_truth,context
+show me all open bugs,"I ran into an issue fetching that data: Error code: 429 - {'error': {'message': 'Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '50', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1776124800000'}, 'provider_name': None}}, 'user_id': 'user_3C4bwFHIARtyBxu9GmWfoOQW7zt'}. Please try rephrasing.
+
+Would you like me to take any action on this?",direct,Listed open bug issues from Redmine,show me all open bugs
+create a task for login in the alpha project,"I ran into an issue fetching that data: Error code: 429 - {'error': {'message': 'Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '50', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1776124800000'}, 'provider_name': None}}, 'user_id': 'user_3C4bwFHIARtyBxu9GmWfoOQW7zt'}. Please try rephrasing.
+
+Would you like me to take any action on this?",automation_agent,Created a new task in the alpha project successfully,create a task for login in the alpha project
+what are the risks this week?,"I ran into an issue fetching that data: Error code: 429 - {'error': {'message': 'Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '50', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1776124800000'}, 'provider_name': None}}, 'user_id': 'user_3C4bwFHIARtyBxu9GmWfoOQW7zt'}. Please try rephrasing.
+
+Would you like me to take any action on this?",risk_agent,Identified risks and overdue issues for the week,what are the risks this week?
+give me a project summary,"I ran into an issue fetching that data: Error code: 429 - {'error': {'message': 'Rate limit exceeded: free-models-per-min. ', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '16', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1776113460000'}, 'provider_name': None}}, 'user_id': 'user_3C4bwFHIARtyBxu9GmWfoOQW7zt'}. Please try rephrasing.
+
+Would you like me to take any action on this?",dashboard_agent,Showed project dashboard with KPIs and charts,give me a project summary
+assign issue #5 to Alice and show me its status,"I ran into an issue fetching that data: Error code: 429 - {'error': {'message': 'Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '50', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1776124800000'}, 'provider_name': None}}, 'user_id': 'user_3C4bwFHIARtyBxu9GmWfoOQW7zt'}. Please try rephrasing.
+
+Would you like me to take any action on this?",parallel,Showed issue #5 details and assigned it to Alice,assign issue #5 to Alice and show me its status
+who is working on issue #3?,"I ran into an issue fetching that data: Error code: 429 - {'error': {'message': 'Rate limit exceeded: free-models-per-min. ', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '16', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1776113520000'}, 'provider_name': None}}, 'user_id': 'user_3C4bwFHIARtyBxu9GmWfoOQW7zt'}. Please try rephrasing.
+
+Would you like me to take any action on this?",direct,Identified the assignee of issue #3,who is working on issue #3?
+close all resolved bugs,"Finding all resolved bugs and closing them.
+
+⚠️ No issues found matching: tracker=Bug, status=Resolved.
+
+What would you like to do next?",automation_agent,Updated status of resolved bugs to closed,close all resolved bugs
+show me the workload dashboard,"{""type"": ""dashboard"", ""title"": ""Team Workload — All Projects"", ""generated_at"": ""2026-04-13T20:57:06.514367+00:00"", ""summary"": ""Alice Fullstack carries the heaviest load with 10 open issues. 4 issues are unassigned."", ""kpis"": [{""label"": ""Team Members"", ""value"": ""5"", ""status"": ""info""}, {""label"": ""Most Loaded"", ""value"": ""Alice Fullstack (10)"", ""status"": ""warning""}, {""label"": ""Most Overdue"", ""value"": ""Alice Fullstack (2)"", ""status"": ""critical""}, {""label"": ""Unassigned"", ""value"": ""4"", ""status"": ""warning""}], ""charts"": [{""type"": ""bar"", ""title"": ""Open Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 10}, {""label"": ""Amir  Backend"", ""value"": 8}, {""label"": ""Abir Mobile"", ""value"": 6}, {""label"": ""Amira Frontend"", ""value"": 6}, {""label"": ""Ahed Manager"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most open work (10 issues)""}, {""type"": ""bar"", ""title"": ""Overdue Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 2}, {""label"": ""Amir  Backend"", ""value"": 1}, {""label"": ""Abir Mobile"", ""value"": 2}, {""label"": ""Amira Frontend"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most overdue issues""}]}",dashboard_agent,Displayed team workload distribution dashboard,show me the workload dashboard
+any overdue issues?,"- #21: Add real‑time chat between students and instructors – 44 days overdue (Amir, Backend)  
+- #22: Video streaming freezes on slow internet – 29 days overdue (Abir, Mobile)  
+- #28: Course search returns incorrect results with filters – 3 days overdue (Alice, Fullstack)  
+- #24: Optimize homepage loading speed via lazy‑loaded images – 3 days overdue (Amira, Frontend) – Status: Closed  
+- #7: Mobile app crashes when enrolling in a course with >50 lessons – 2 days overdue (Abir, Mobile)  
+- #37: Checkout error – 1 day overdue (Alice, Fullstack)  
+
+These six overdue items are currently impacting on‑time delivery and should be prioritized for resolution.",risk_agent,Found and listed overdue issues across projects,any overdue issues?
+create a high priority bug called payment crash in mobile-app,"Creating a high priority bug: payment crash in the mobile-app project.
+
+✅ Issue #40 created: ""payment crash""
+
+   Project:  mobile-app 
+
+   Tracker:  Bug
+
+   Priority: High
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?",automation_agent,Created a high priority bug in the mobile-app project,create a high priority bug called payment crash in mobile-app

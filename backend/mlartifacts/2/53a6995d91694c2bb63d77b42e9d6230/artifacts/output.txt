@@ -1,0 +1,36 @@
+The E‑Learning Platform project contains **34 issues** in total. Of these, **28 are currently assigned** (see list below) and **6 remain unassigned**.
+
+**Assigned issues**
+- #58 Checkout error – Alice Fullstack  
+- #37 Checkout error – Alice Fullstack  
+- #36 Fix login – Alice Fullstack  
+- #30 Implement system‑wide maintenance mode toggle – Amir Backend  
+- #29 Improve UI spacing in course cards – Alice Fullstack  
+- #28 Course search returns incorrect results – Alice Fullstack  
+- #27 Migrate legacy API endpoints – Abir Mobile  
+- #26 Add admin role management – Ahed Manager  
+- #25 Fix typo in landing page footer – Amir Backend  
+- #24 Optimize homepage loading speed – Amira Frontend  
+- #23 Create database backup automation – Alice Fullstack  
+- #22 Video streaming freezes – Abir Mobile  
+- #21 Add real‑time chat – Amir Backend  
+- #20 Add dark‑mode theme – Amira Frontend  
+- #19 Implement peer review for assignments – Amir Backend  
+- #18 Add i18n for Arabic/French – Alice Fullstack  
+- #17 Create instructor analytics dashboard – Abir Mobile  
+- #16 Allow offline course downloads – Abir Mobile  
+- #15 Add badges/points/leaderboards – Amira Frontend  
+- #14 Auto‑generate quiz questions – Amir Backend  
+- #13 Implement live streaming – Alice Fullstack  
+- #12 Students don’t receive course update notifications – Amir Backend  
+- #11 Course dashboard layout broken on tablets – Abir Mobile  
+- #10 Payment processing times out – Amira Frontend  
+- #9 XSS vulnerability in forum – Alice Fullstack  
+- #8 Course completion certificate shows wrong name – Amira Frontend  
+- #7 Mobile app crashes on >50 lessons – Mounir Qa  
+- #6 Course progress bar incorrect – Alice Fullstack  
+- #4 Video player crashes on iOS Safari – Amir Backend  
+
+Six issues in the project are currently without an assignee.
+
+Would you like me to assign those unassigned issues or focus on any overdue ones?

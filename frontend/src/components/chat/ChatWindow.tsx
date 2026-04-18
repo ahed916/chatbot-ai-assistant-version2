@@ -48,7 +48,7 @@ export function ChatWindow({
         <RiskAlertBell
           alerts={riskAlerts}
           onOpen={onOpenAlert}
-          onDismiss={onDismissAlert}
+          onMarkRead={onDismissAlert}
         />
       </header>
 

@@ -1,0 +1,1 @@
+Hello! I'm RedMind, ready to help you manage your Redmine projects. What would you like to work on today?

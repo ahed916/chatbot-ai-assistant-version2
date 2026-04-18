@@ -1,0 +1,1 @@
+Here are all 27 open bugs, with overdue items flagged. The E-Learning Platform has the most bugs (14), followed by Mobile App (11) and web Platform (2). Six bugs are currently overdue. Would you like me to assign any of these, check for risks, or create a dashboard view?

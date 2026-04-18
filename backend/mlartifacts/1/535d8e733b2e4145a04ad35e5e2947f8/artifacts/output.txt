@@ -1,0 +1,15 @@
+Creating a new feature issue for dark mode in the e-learning platform project.
+
+✅ Issue #46 created: "dark mode"
+
+   Project:  e-learning platform 
+
+   Tracker:  Feature
+
+   Priority: Normal
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?

@@ -1,0 +1,25 @@
+inputs,outputs,expected_route,ground_truth,category,notes,context
+show me all open bugs,"There are 28 open bugs, with 6 overdue and many currently unassigned. Notable overdue issues include #58, #37, #28, #22, #10, and #7. Several payment‑crash bugs in the Mobile App remain unassigned and lack due dates. Would you like me to assign any of these or set due dates?",direct,Listed open bug issues from Redmine,read,,show me all open bugs
+who is working on issue #3?,"Issue #3 doesn’t exist in Redmine, so there’s no assignee to report. Would you like me to look up a different issue or help you create one?",direct,Identified the assignee of issue #3,read,,who is working on issue #3?
+list all issues assigned to Alice,"Alice has 12 assigned issues, with 3 overdue.
+
+- Priority: 5 High, 5 Normal, 1 Low, 1 Urgent  
+- Projects: 10 E‑Learning Platform, 1 Mobile App, 1 web Platform  
+
+What would you like to tackle first—clearing the overdue tickets or redistributing some work?",direct,Listed all issues assigned to Alice Fullstack,read,,list all issues assigned to Alice
+create a high priority bug called payment crash in mobile-app,"Issue #60 ""payment crash"" has been created as a high‑priority bug in the mobile‑app project. It is currently unassigned and has no due date set.
+
+Would you like to assign it to a team member or add a due date?",automation_agent,Created a high priority bug in the mobile-app project,write,,create a high priority bug called payment crash in mobile-app
+assign issue #999 to Amir,I found two team members that match “Amir”: **Amir Backend** and **Amira Frontend**. Which one should I assign issue #999 to?,automation_agent,Gracefully reported that issue #999 does not exist,write_graceful_failure,,assign issue #999 to Amir
+assign issue #7 to Mounir and set its priority to urgent,Issue #7 has been assigned to Mounir and its priority set to Urgent. Let me know if you need any further updates or actions. Is there anything else you'd like to adjust?,automation_agent,Updated issue #7 with new assignee and priority,write,,assign issue #7 to Mounir and set its priority to urgent
+what are the risks this week?,"I’m unable to retrieve the risk information at the moment due to a temporary issue. Please try again in a moment, and I’ll provide the latest risks for this week.
+
+Is there anything else you’d like me to check regarding your Redmine projects?",risk_agent,Identified risks and overdue issues for the week,risk,,what are the risks this week?
+any overdue issues?,"There are 8 overdue issues, all located in the E‑Learning Platform project. The Mobile App and Web Platform projects currently have no overdue work. Would you like me to list the specific overdue issues or suggest actions to get them back on track?",risk_agent,Found and listed overdue issues across projects,risk,,any overdue issues?
+show me issues due in the next 3 days,"⚠️ I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",risk_agent,Listed issues with deadlines in the next 3 days,risk,,show me issues due in the next 3 days
+give me a project summary,"⚠️ I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",dashboard_agent,Showed project dashboard with KPIs and charts,dashboard,,give me a project summary
+show me a summary of the mobile-app project,"⚠️ I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",dashboard_agent,Showed dashboard for the Mobile App project,dashboard,,show me a summary of the mobile-app project
+how is the team performing this week?,"⚠️ I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",dashboard_agent,Showed team performance dashboard with KPIs,dashboard,,how is the team performing this week?
+show me issue #7 and mark it as resolved,"⚠️ I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",parallel,Showed issue #7 details and updated its status to resolved,parallel,,show me issue #7 and mark it as resolved
+who is assigned to issue #3 and reassign it to Abir,"⚠️ I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",parallel,Showed current assignee of issue #3 and reassigned to Abir,parallel,,who is assigned to issue #3 and reassign it to Abir
+what are the overdue issues and close all resolved bugs,"⚠️ I encountered an error processing your request. Please check that the issue, project, or user exists in Redmine and try again.",parallel,Listed overdue issues and closed all resolved bugs,parallel,,what are the overdue issues and close all resolved bugs

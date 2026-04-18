@@ -1,0 +1,6 @@
+- There are **8 overdue issues** in the E‑Learning Platform project.  
+- **Overloaded assignees**: Alice Fullstack (3 overdue) and Amira Frontend (2 overdue).  
+- **Long‑stalled blockers**: Issue #21 (Amir Backend) overdue by 49 days and #22 (Abir Mobile) overdue by 34 days show no recent progress.  
+- I have **closed all resolved issues** (issue #43 moved to Closed).  
+
+Would you like me to redistribute the overdue work or investigate the stalled blockers further?

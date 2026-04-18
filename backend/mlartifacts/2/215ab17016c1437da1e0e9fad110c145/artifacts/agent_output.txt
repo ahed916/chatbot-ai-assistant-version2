@@ -1,0 +1,9 @@
+Closing all resolved issues by updating their status to Closed.
+
+Found 1 matching issue(s).
+
+Bulk update: 1 of 1 issue(s) updated successfully.
+
+✅ Updated: #43
+
+What would you like to do next?

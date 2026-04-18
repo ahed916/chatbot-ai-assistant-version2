@@ -1,0 +1,18 @@
+Here are all the issues currently assigned to Alice:
+
+- **#37** – [High] Checkout error (New) – E-Learning Platform – Due: 2026-04-12 ⚠️ OVERDUE
+- **#36** – [Normal] Fix login (New) – E-Learning Platform – Due: None
+- **#32** – [Normal] Implement dashboard feature (New) – web Platform – Due: None
+- **#29** – [Low] Improve UI spacing in course cards on dashboard (In Progress) – E-Learning Platform – Due: 2026-04-18
+- **#28** – [High] Course search returns incorrect results when using filters (New) – E-Learning Platform – Due: 2026-04-10 ⚠️ OVERDUE
+- **#23** – [Normal] Create database backup automation script (New) – E-Learning Platform – Due: 2026-04-20
+- **#18** – [Normal] Add internationalization (i18n) for Arabic and French (New) – E-Learning Platform – Due: None
+- **#13** – [High] Implement live streaming for virtual classroom sessions (New) – E-Learning Platform – Due: None
+- **#9** – [Urgent] XSS vulnerability in course discussion forum (Closed) – E-Learning Platform – Due: None
+- **#6** – [Normal] Course progress bar shows incorrect percentage (Closed) – E-Learning Platform – Due: None
+
+**Summary:** 10 issues total (2 overdue).  
+By priority: High (3), Normal (5), Low (1), Urgent (1).  
+By project: E-Learning Platform (9), web Platform (1).
+
+Would you like me to take any action on this?

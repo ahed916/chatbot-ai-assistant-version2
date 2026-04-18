@@ -1,0 +1,5 @@
+Risk 1: Overdue critical issues in E-Learning Platform — 5 issues are 3–45 days late (#21, #22, #28, #24, #7), risking release delays and user trust. → Immediately assign a clear owner to each (already assigned) and start a 15‑minute daily sync to track progress.
+
+Risk 2: High number of unassigned issues in Mobile App — 6 open issues have no owner, risking missed sprint goals and work falling through cracks. → Conduct a triage meeting today to assign each unassigned issue based on tracker and priority (e.g., bugs to Abir/Amira, features to Alice/Amir).
+
+Risk 3: Workload concentration on Alice and Abir — each carries 8 and 6 open issues (including overdue), risking burnout and further delays. → Move 2 low‑priority tasks from each to Amir or Amira (who have 4 and 5 open issues respectively) to rebalance load this week.

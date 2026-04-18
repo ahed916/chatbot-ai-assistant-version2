@@ -1,0 +1,15 @@
+Creating a task to fix login error in the web platform project.
+
+✅ Issue #50 created: "fix login error"
+
+   Project:  web platform 
+
+   Tracker:  Task
+
+   Priority: Normal
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?

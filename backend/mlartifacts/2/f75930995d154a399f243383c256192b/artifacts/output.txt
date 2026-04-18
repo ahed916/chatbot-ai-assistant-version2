@@ -1,0 +1,3 @@
+There are no issues scheduled for completion in the next three days.  
+However, eight issues are already overdue, primarily in the E‑Learning Platform, with Alice Fullstack handling three of them.  
+Would you like to see the overdue list or discuss reassigning some of those tasks?

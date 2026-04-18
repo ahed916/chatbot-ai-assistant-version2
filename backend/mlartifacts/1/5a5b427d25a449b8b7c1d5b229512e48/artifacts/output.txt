@@ -1,0 +1,20 @@
+Alice has 10 issues assigned to her. Two are currently overdue:
+
+- Issue #37: a high‑priority checkout error in the E‑Learning Platform that was due on April 12, 2026 and is still marked as new.
+- Issue #28: a high‑priority problem with course search returning incorrect results when using filters in the E‑Learning Platform, due April 10, 2026 and also still new.
+
+Her other open assignments include:
+- A normal‑priority login fix in the E‑Learning Platform (issue #36, new, no due date).
+- A normal‑priority dashboard feature for the web Platform (issue #32, new, no due date).
+- A low‑priority UI spacing improvement for course cards on the dashboard in the E‑Learning Platform (issue #29, in progress, due April 18, 2026).
+- A normal‑priority database backup automation script in the E‑Learning Platform (issue #23, new, due April 20, 2026).
+- A normal‑priority task to add internationalization for Arabic and French in the E‑Learning Platform (issue #18, new, no due date).
+- A high‑priority live‑streaming feature for virtual classroom sessions in the E‑Learning Platform (issue #13, new, no due date).
+
+Two issues assigned to Alice are already closed:
+- An urgent XSS vulnerability in the course discussion forum (issue #9).
+- A normal‑priority course progress bar that showed an incorrect percentage (issue #6).
+
+In summary, Alice is handling 10 issues—8 open and 2 closed—with 2 of the open items overdue. The breakdown by priority is 3 high, 5 normal, 1 low, and 1 urgent; by project, 9 belong to the E‑Learning Platform and 1 to the web Platform.
+
+Would you like me to take any action on this?

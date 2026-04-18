@@ -1,0 +1,3 @@
+Issue #7 is currently in the **New** status. It is an urgent bug in the E-Learning Platform project, assigned to Mounir Qa, and involves the mobile app crashing when enrolling in courses with more than 50 lessons. The issue was created on March 3, 2026, and last updated on April 14, 2026. No work has been logged yet, and it is not closed.
+
+Would you like me to take any action on this?

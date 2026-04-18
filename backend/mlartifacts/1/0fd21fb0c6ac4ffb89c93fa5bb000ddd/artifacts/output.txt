@@ -1,0 +1,12 @@
+The e-learning platform project (customer-support) has the following members:
+
+- Ahed Manager (ID: 10) – Manager, Developer, Administrator, QA  
+- Mounir Qa (ID: 9) – Manager, Developer, Administrator, QA  
+- Abir Mobile (ID: 8) – Developer, Manager, Developer, Administrator, QA  
+- Alice Fullstack (ID: 14) – Developer, Manager, Developer, Administrator, QA  
+- Amir Backend (ID: 6) – Developer, Manager, Developer, Administrator, QA  
+- Amira Frontend (ID: 7) – Developer, Manager, Developer, Administrator, QA  
+
+There are also several additional members listed in the system whose names could not be retrieved.
+
+Would you like me to take any action on this?

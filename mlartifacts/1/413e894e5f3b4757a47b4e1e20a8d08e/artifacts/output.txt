@@ -1,0 +1,9 @@
+Alice Fullstack is currently the main owner of risk‑related work, handling 12 open issues (including two overdue).  
+Additionally, 21 open issues have no assignee, meaning no one is explicitly responsible for those risks.  
+Stalled tasks with no recent progress also point to gaps in ownership.
+
+- Overloaded assignee: Alice Fullstack  
+- Unassigned work: 21 issues without an owner  
+- Stalled tasks: 5 issues inactive for ≥5 days  
+
+Would you like me to reassign some of Alice’s overdue issues or distribute the unassigned work to balance the load?

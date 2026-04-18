@@ -1,0 +1,2 @@
+Are you sure you want to delete issue #5? This action cannot be undone. Please confirm.  
+What would you like to do next?

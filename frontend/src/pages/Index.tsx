@@ -12,9 +12,6 @@ const Index = () => {
     createConversation,
     selectConversation,
     sendMessage,
-    riskAlerts,
-    openRiskAlert,
-    markAlertRead,
   } = useChatState();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -39,9 +36,6 @@ const Index = () => {
         isTyping={isTyping}
         onSend={sendMessage}
         onToggleSidebar={() => setSidebarOpen(true)}
-        riskAlerts={riskAlerts}
-        onOpenAlert={openRiskAlert}
-        onDismissAlert={markAlertRead}
       />
     </div>
   );

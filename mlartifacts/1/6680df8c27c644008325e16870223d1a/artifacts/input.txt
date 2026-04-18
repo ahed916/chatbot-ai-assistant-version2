@@ -1,0 +1,1 @@
+Create a bug called "Checkout error", assign it to Alice, set priority to high, due date to Friday, mark it 20% done

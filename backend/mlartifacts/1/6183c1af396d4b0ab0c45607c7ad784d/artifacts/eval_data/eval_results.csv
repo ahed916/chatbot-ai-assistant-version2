@@ -1,0 +1,72 @@
+inputs,outputs,expected_route,ground_truth
+show me all open bugs,"Here are all 14 open bugs across your projects:
+
+- #37 [High] Checkout error | E-Learning Platform | Alice Fullstack | Due: 2026-04-12 ⚠️
+- #36 [Normal] Fix login | E-Learning Platform | Alice Fullstack | Due: None
+- #31 [High] Fix payment bug | web Platform | Unassigned | Due: None
+- #28 [High] Course search returns incorrect results when using filters | E-Learning Platform | Alice Fullstack | Due: 2026-04-10 ⚠️
+- #25 [Very Low] Fix typo in landing page footer text | E-Learning Platform | Amir Backend | Due: 2026-05-01
+- #22 [High] Video streaming freezes on slow internet connections | E-Learning Platform | Abir Mobile | Due: 2026-03-15 ⚠️
+- #12 [Normal] Students don't receive course update notifications | E-Learning Platform | Amir Backend | Due: None
+- #11 [High] Course dashboard layout broken on tablets (768px-1024px) | E-Learning Platform | Abir Mobile | Due: None
+- #10 [High] Payment processing times out for courses over $100 | E-Learning Platform | Amira Frontend | Due: 2026-04-17
+- #9 [Urgent] XSS vulnerability in course discussion forum | E-Learning Platform | Alice Fullstack | Due: None
+- #8 [Urgent] Course completion certificate shows wrong student name | E-Learning Platform | Amira Frontend | Due: None
+- #7 [High] Mobile app crashes when enrolling in course with >50 lessons | E-Learning Platform | Abir Mobile | Due: 2026-04-11 ⚠️
+- #6 [Normal] Course progress bar shows incorrect percentage | E-Learning Platform | Alice Fullstack | Due: None
+- #4 [High] Video player crashes on iOS Safari when switching to fullscreen | E-Learning Platform | Amir Backend | Due: None
+
+**Summary:** 13 bugs in the E-Learning Platform project, 1 in the web Platform project, and 4 are currently overdue.
+
+Would you like me to take any action on this?",direct,Listed open bug issues from Redmine
+create a task for login in the alpha project,"Creating a login task in the Alpha project.
+
+⚠️ Project 'alpha' not found.
+Available projects: 'e commerce website' (e-commerce-website), 'E-Learning Platform' (customer-support), 'HR Management Platform' (hr-management), 'Mobile App' (mobile-app), 'project test' (project-test), 'project test 2' (project-test-2), 'test' (test), 'Test Automation Project' (test-auto-1773358265), 'web Platform' (development-platform)
+
+What would you like to do next?",automation_agent,Created a new task in the alpha project successfully
+what are the risks this week?,"Risk 1: E-Learning Platform team overload and overdue critical items — Alice (8 issues, 2 overdue) and Abir (6 issues, 2 overdue) are blocked by stale high-priority bugs/features (#21, #22, #28, #7) with zero progress, threatening platform stability. → Immediately reassign #21 to Amir and #22 to Abir with deadline today for status update; shift one low-effort task from Alice to Ahed.
+
+Risk 2: Unassigned high-priority payment bug (#31) in web Platform — no owner risks revenue impact and customer trust. → Assign #31 to Amir Backend by end of day.
+
+Overall: System strained but salvageable. Next step: convene a 15-minute overdue triage now to assign owners and set 24-hour update commitments.",risk_agent,Identified risks and overdue issues for the week
+give me a project summary,"{""type"": ""dashboard"", ""title"": ""All Projects Overview"", ""generated_at"": ""2026-04-13T20:18:50.708303+00:00"", ""summary"": ""9 projects tracked. 33 open issues total, 6 overdue."", ""kpis"": [{""label"": ""Total Projects"", ""value"": ""9"", ""status"": ""info""}, {""label"": ""Open Issues"", ""value"": ""33"", ""status"": ""warning""}, {""label"": ""Total Overdue"", ""value"": ""6"", ""status"": ""critical""}, {""label"": ""Most Loaded"", ""value"": ""E-Learning Platform (29)"", ""status"": ""warning""}, {""label"": ""Most Overdue"", ""value"": ""E-Learning Platform (6)"", ""status"": ""critical""}], ""charts"": [{""type"": ""bar"", ""title"": ""Open Issues per Project"", ""data"": [{""label"": ""E-Learning Platform"", ""value"": 29}, {""label"": ""web Platform"", ""value"": 3}, {""label"": ""Mobile App"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""E-Learning Platform has the most open work (29 issues)""}, {""type"": ""bar"", ""title"": ""Overdue Issues per Project"", ""data"": [{""label"": ""E-Learning Platform"", ""value"": 6}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""E-Learning Platform has the most overdue issues""}]}",dashboard_agent,Showed project dashboard with KPIs and charts
+assign issue #5 to Alice and show me its status,"I tried to assign issue #5 to Alice, but it looks like issue #5 doesn’t exist in Redmine—maybe double‑check the number or look at recent issues to find the correct ID. What would you like to do next?",parallel,Showed issue #5 details and assigned it to Alice
+who is working on issue #3?,"Issue #3 does not exist in the Redmine system.
+
+Would you like me to take any action on this?",direct,Identified the assignee of issue #3
+close all resolved bugs,"Closing all resolved bugs by setting their status to Closed.
+
+⚠️ No issues found matching: tracker=Bug, status=Resolved.
+
+What would you like to do next?",automation_agent,Updated status of resolved bugs to closed
+show me the workload dashboard,"{""type"": ""dashboard"", ""title"": ""Team Workload — All Projects"", ""generated_at"": ""2026-04-13T20:20:51.695103+00:00"", ""summary"": ""Alice Fullstack carries the heaviest load with 10 open issues. 2 issues are unassigned."", ""kpis"": [{""label"": ""Team Members"", ""value"": ""5"", ""status"": ""info""}, {""label"": ""Most Loaded"", ""value"": ""Alice Fullstack (10)"", ""status"": ""warning""}, {""label"": ""Most Overdue"", ""value"": ""Alice Fullstack (2)"", ""status"": ""critical""}, {""label"": ""Unassigned"", ""value"": ""2"", ""status"": ""warning""}], ""charts"": [{""type"": ""bar"", ""title"": ""Open Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 10}, {""label"": ""Amir  Backend"", ""value"": 8}, {""label"": ""Abir Mobile"", ""value"": 6}, {""label"": ""Amira Frontend"", ""value"": 6}, {""label"": ""Ahed Manager"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most open work (10 issues)""}, {""type"": ""bar"", ""title"": ""Overdue Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 2}, {""label"": ""Amir  Backend"", ""value"": 1}, {""label"": ""Abir Mobile"", ""value"": 2}, {""label"": ""Amira Frontend"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most overdue issues""}]}",dashboard_agent,Displayed team workload distribution dashboard
+any overdue issues?,"🚨 RISK: 6 OVERDUE ISSUE(S) DETECTED
+
+  ⏰ #21 [E-Learning Platform] Add real-time chat between students and instructors
+     → Overdue by 44 day(s) | Assignee: Amir  Backend | Due: 2026-02-28 | Status: New
+  ⏰ #22 [E-Learning Platform] Video streaming freezes on slow internet connections
+     → Overdue by 29 day(s) | Assignee: Abir Mobile | Due: 2026-03-15 | Status: In Progress
+  ⏰ #28 [E-Learning Platform] Course search returns incorrect results when using filters
+     → Overdue by 3 day(s) | Assignee: Alice Fullstack | Due: 2026-04-10 | Status: New
+  ⏰ #24 [E-Learning Platform] Optimize homepage loading speed by lazy loading images
+     → Overdue by 3 day(s) | Assignee: Amira Frontend | Due: 2026-04-10 | Status: Closed
+  ⏰ #7 [E-Learning Platform] Mobile app crashes when enrolling in course with >50 lessons
+     → Overdue by 2 day(s) | Assignee: Abir Mobile | Due: 2026-04-11 | Status: New
+  ⏰ #37 [E-Learning Platform] Checkout error
+     → Overdue by 1 day(s) | Assignee: Alice Fullsta",risk_agent,Found and listed overdue issues across projects
+create a high priority bug called payment crash in mobile-app,"Creating a high priority bug in the mobile-app project.
+
+✅ Issue #38 created: ""payment crash""
+
+   Project:  mobile-app 
+
+   Tracker:  Bug
+
+   Priority: High
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?",automation_agent,Created a high priority bug in the mobile-app project

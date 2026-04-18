@@ -22,4 +22,5 @@ def get_llm() -> ChatOpenAI:
         timeout=LLM_TIMEOUT,
         # Improves reliability on free-tier models
         max_retries=2,
+
     )

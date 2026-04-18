@@ -1,0 +1,3 @@
+Issue #59 "payment crash" has been created as a high-priority bug in the mobile-app project. It is currently unassigned and has no due set.
+
+Would you like to assign it to someone or set a due date?

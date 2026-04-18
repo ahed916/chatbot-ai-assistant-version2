@@ -1,0 +1,6 @@
+Creating a task for login in the Alpha project.
+
+⚠️ Project 'alpha' not found.
+Available projects: 'e commerce website' (e-commerce-website), 'E-Learning Platform' (customer-support), 'HR Management Platform' (hr-management), 'Mobile App' (mobile-app), 'project test' (project-test), 'project test 2' (project-test-2), 'test' (test), 'Test Automation Project' (test-auto-1773358265), 'web Platform' (development-platform)
+
+What would you like to do next?

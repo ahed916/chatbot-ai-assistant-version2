@@ -1,0 +1,27 @@
+Here are all 21 open bugs in the system:
+
+- **#44** [High] payment crash | Mobile App | Unassigned
+- **#43** [High] payment crash | Mobile App | Unassigned
+- **#42** [High] payment crash | Mobile App | Unassigned
+- **#41** [High] payment crash | Mobile App | Unassigned
+- **#40** [High] payment crash | Mobile App | Unassigned
+- **#39** [High] payment crash | Mobile App | Unassigned
+- **#38** [High] payment crash | Mobile App | Unassigned
+- **#37** [High] Checkout error | E-Learning Platform | Alice Fullstack | Due: 2026-04-12 (overdue)
+- **#36** [Normal] Fix login | E-Learning Platform | Alice Fullstack
+- **#31** [High] Fix payment bug | web Platform | Unassigned
+- **#28** [High] Course search returns incorrect results when using filters | E-Learning Platform | Alice Fullstack | Due: 2026-04-10 (overdue)
+- **#25** [Very Low] Fix typo in landing page footer text | E-Learning Platform | Amir Backend | Due: 2026-05-01
+- **#22** [High] Video streaming freezes on slow internet connections | E-Learning Platform | Abir Mobile | Due: 2026-03-15 (overdue)
+- **#12** [Normal] Students don't receive course update notifications | E-Learning Platform | Amir Backend
+- **#11** [High] Course dashboard layout broken on tablets (768px-1024px) | E-Learning Platform | Abir Mobile
+- **#10** [High] Payment processing times out for courses over $100 | E-Learning Platform | Amira Frontend | Due: 2026-04-17
+- **#9** [Urgent] XSS vulnerability in course discussion forum | E-Learning Platform | Alice Fullstack
+- **#8** [Urgent] Course completion certificate shows wrong student name | E-Learning Platform | Amira Frontend
+- **#7** [High] Mobile app crashes when enrolling in course with >50 lessons | E-Learning Platform | Abir Mobile | Due: 2026-04-11 (overdue)
+- **#6** [Normal] Course progress bar shows incorrect percentage | E-Learning Platform | Alice Fullstack
+- **#4** [High] Video player crashes on iOS Safari when switching to fullscreen | E-Learning Platform | Amir Backend
+
+**Summary:** 7 bugs in Mobile App, 13 in E-Learning Platform, 1 in web Platform. 4 bugs are currently overdue.
+
+Would you like me to take any action on this?

@@ -1,0 +1,3 @@
+Alice is assigned to 12 issues, including overdue high‑priority checkout errors (#58, #37, #28) and the high‑priority payment crash (#40) with no due date. She also has the backup automation script (#23, normal, due Apr 20), UI spacing work (#29, low, in progress, due Apr 18), and several normal‑priority tasks such as login fix, dashboard feature, internationalization, and live streaming, plus two closed items (#9, #6).  
+
+Would you like to see her workload summary or adjust any priorities?

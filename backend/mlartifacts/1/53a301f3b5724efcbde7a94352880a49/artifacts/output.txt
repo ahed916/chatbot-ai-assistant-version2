@@ -1,0 +1,6 @@
+Alice has 12 assigned issues, with 3 overdue.
+
+- Priority: 5 High, 5 Normal, 1 Low, 1 Urgent  
+- Projects: 10 E‑Learning Platform, 1 Mobile App, 1 web Platform  
+
+What would you like to tackle first—clearing the overdue tickets or redistributing some work?

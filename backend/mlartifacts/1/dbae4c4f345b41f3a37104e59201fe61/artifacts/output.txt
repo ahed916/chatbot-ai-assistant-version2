@@ -1,0 +1,16 @@
+Alice has 10 issues assigned to her across two projects.
+
+- #37 [High] Checkout error: New, in E-Learning Platform, due 2026-04-12 (OVERDUE)
+- #36 [Normal] Fix login: New, in E-Learning Platform, no due date
+- #32 [Normal] Implement dashboard feature: New, in web Platform, no due date
+- #29 [Low] Improve UI spacing in course cards on dashboard: In Progress, in E-Learning Platform, due 2026-04-18
+- #28 [High] Course search returns incorrect results when using filters: New, in E-Learning Platform, due 2026-04-10 (OVERDUE)
+- #23 [Normal] Create database backup automation script: New, in E-Learning Platform, due 2026-04-20
+- #18 [Normal] Add internationalization (i18n) for Arabic and French: New, in E-Learning Platform, no due date
+- #13 [High] Implement live streaming for virtual classroom sessions: New, in E-Learning Platform, no due date
+- #9 [Urgent] XSS vulnerability in course discussion forum: Closed, in E-Learning Platform, no due date
+- #6 [Normal] Course progress bar shows incorrect percentage: Closed, in E-Learning Platform, no due date
+
+Overall, there are 3 High, 5 Normal, 1 Low, and 1 Urgent issues, with 9 in the E-Learning Platform project and 1 in the web Platform project; 2 issues are overdue.
+
+Would you like me to take any action on this?

@@ -1,0 +1,2 @@
+The dashboard shows 23 high‑priority and 4 urgent issues open, together representing half of all open tickets. A bar chart breaks down the distribution across priority levels. This highlights where the team’s effort is most needed.  
+Would you like to drill down into any of these high‑priority items or see assignee details?

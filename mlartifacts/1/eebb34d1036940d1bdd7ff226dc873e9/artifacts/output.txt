@@ -1,0 +1,7 @@
+- Total Recent Issues: 46  
+- High Priority Issues: 22  
+- Urgent Issues: 3  
+- Closed Issues: 5  
+
+In the last week, these updates spanned the web Platform, E‑Learning Platform, and Mobile App. Most of the recent issues remain in New status (34), with only a handful In Progress or closed. The E‑Learning Platform contributed over half of the activity, indicating it’s the current hotspot.  
+What would you like to explore next?

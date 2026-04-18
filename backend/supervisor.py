@@ -1,42 +1,34 @@
 """
-supervisor.py — The Supervisor Agent
+supervisor.py — RedMind Supervisor (Subagents Pattern)
 
-Architecture:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The supervisor makes ONE routing LLM call to classify intent, then:
+KEY FIX for dashboard rendering:
+  The supervisor was receiving the JSON string from call_dashboard_agent and then
+  passing it to the LLM, which re-summarized it into prose ("Here is your dashboard...").
+  The frontend never saw the JSON, only text.
 
-  - Read/direct queries        → ReAct loop with READ_TOOLS
-  - Dashboard/summary          → dashboard_agent
-  - Write/action               → automation_agent
-  - Risk/deadline              → risk_agent
-  - Read + Write               → direct (ReAct) + automation_agent
-  - Multiple needs             → parallel agents (any combination)
+  Solution (from LangChain subagents docs pattern):
+    call_dashboard_agent is marked with a special sentinel prefix so that
+    run_supervisor() can detect it and return the raw JSON directly,
+    bypassing the supervisor LLM's synthesis step entirely.
 
-KEY DESIGN DECISIONS:
-  - No extra LLM call for query splitting. The routing LLM emits read_query
-    and write_query inline when it chooses the parallel route.
-
-  - Each agent in a parallel call gets its OWN namespaced session_id so
-    internal session histories never bleed across agents.
-
-  - Parallel responses are SYNTHESIZED into a single coherent reply by a
-    final LLM call rather than mechanically concatenated with separators.
-    "Show me issue 7 and mark it as resolved" → one natural answer, not two
-    disconnected blocks with headers and dividers.
+  This is NOT routing — the supervisor still decides WHICH tool to call.
+  We only intercept the result AFTER the tool has already run.
 """
 
-import asyncio
 import hashlib
 import json
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
 
+import mlflow
 import redis as redis_lib
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain.agents import create_agent
+from langchain.tools import tool
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agents.automation_agent import run_automation_agent
 from agents.dashboard_agent import run_dashboard_agent
+from agents.data_agent import run_data_agent
 from agents.risk_agent import run_risk_agent
 from audit import log_event, TimedAudit
 from config import (
@@ -44,14 +36,16 @@ from config import (
     REDIS_DB,
     REDIS_HOST,
     REDIS_PORT,
-    load_prompt,
 )
 from llm import get_llm
-from tools.read_tools import READ_TOOLS
 
 logger = logging.getLogger(__name__)
 
-# ── Redis ─────────────────────────────────────────────────────────────────────
+# Sentinel prefix added to dashboard tool results so we can detect them
+# in the final message list and return them verbatim to the frontend.
+_DASHBOARD_SENTINEL = "__DASHBOARD_JSON__:"
+
+# ── Redis ──────────────────────────────────────────────────────────────────────
 try:
     _redis = redis_lib.Redis(
         host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB,
@@ -60,15 +54,13 @@ try:
         socket_timeout=2,
     )
     _redis.ping()
-    logger.info("[SUPERVISOR REDIS] Connected")
-except Exception as e:
-    logger.warning(f"[SUPERVISOR REDIS] Unavailable: {e}")
+    logger.info("[SUPERVISOR] Redis connected")
+except Exception as _e:
+    logger.warning(f"[SUPERVISOR] Redis unavailable: {_e}")
     _redis = None
 
-_executor = ThreadPoolExecutor(max_workers=4)
 
-
-# ── Cache helpers ─────────────────────────────────────────────────────────────
+# ── Cache helpers ──────────────────────────────────────────────────────────────
 
 def _make_cache_key(user_input: str, history: list) -> str:
     raw = json.dumps(
@@ -90,7 +82,7 @@ def _cache_get(key: str) -> str | None:
         return None
 
 
-def _cache_set(key: str, response: str):
+def _cache_set(key: str, response: str) -> None:
     if not _redis:
         return
     try:
@@ -100,449 +92,318 @@ def _cache_set(key: str, response: str):
         logger.warning(f"[LLM CACHE SET ERROR]: {e}")
 
 
-# ── Routing ───────────────────────────────────────────────────────────────────
+# ── Subagent tools ─────────────────────────────────────────────────────────────
 
-ROUTING_PROMPT = """You are a routing engine for a Redmine project management assistant.
-Analyze the user message and respond ONLY with valid JSON. No explanation. No markdown. Pure JSON only.
-
-{
-  "route": "direct" | "dashboard_agent" | "automation_agent" | "risk_agent" | "parallel",
-  "agents": [],
-  "read_query": null,
-  "write_query": null,
-  "reason": "one sentence"
-}
-
-AGENT CAPABILITIES:
-  "direct"            → read/fetch live Redmine data (issue lookups, counts, assignments, status checks, member lists, due dates, workload queries)
-  "dashboard_agent"   → visual summaries, overviews, charts, KPIs, health reports, team performance
-  "automation_agent"  → write actions (create, update, delete, assign, close, bulk-update issues/projects)
-  "risk_agent"        → risks, blockers, overdue issues, deadline concerns, behind-schedule queries
-
-ROUTING RULES:
-
-"direct":
-  Pure read questions. No write intent.
-  Examples: "who is assigned to #5", "how many open bugs", "what is Alice working on",
-            "list all issues", "show me issues without a due date", "what's the status of #12"
-
-"dashboard_agent":
-  Visual summary, overview, charts, KPIs, reports, health status.
-  Examples: "summary", "overview", "report", "dashboard", "workload distribution chart"
-  RULE: "summary" / "overview" / "report" → dashboard_agent, NEVER direct.
-
-"automation_agent":
-  Pure write actions with no read question attached.
-  Examples: "delete issue #5", "close all bugs", "create a task", "assign #3 to Alice"
-
-"risk_agent":
-  Problems, concerns, risks, deadlines, blockers, new issues, recent changes.
-  Examples: "any risks?", "overdue issues", "who is behind schedule", "blockers",
-            "what new risks appeared today", "what changed today", "any new problems"
-            "did anything change", "what changed since", "any updates since the alert",
-            "has anything improved", "still the same risks?"
-
-"parallel":
-  Use when the request COMBINES multiple intents from different agents.
-  Set "agents" to the list of agents needed.
-
-  IMPORTANT — read_query / write_query fields:
-    When agents includes BOTH "direct" AND "automation_agent", populate:
-      "read_query":  the question/lookup portion only (string)
-      "write_query": the action/modification portion only (string)
-    Otherwise set both to null.
-
-  Examples:
-    "What is the status of issue #5 and assign it to Alice"
-      → parallel, ["direct", "automation_agent"]
-      → read_query: "What is the status of issue #5"
-      → write_query: "Assign issue #5 to Alice"
-
-    "Show me issue 7 and mark it as resolved"
-      → parallel, ["direct", "automation_agent"]
-      → read_query: "Show me issue 7"
-      → write_query: "Mark issue 7 as resolved"
-
-    "Give me a project summary and also create a task for login"
-      → parallel, ["dashboard_agent", "automation_agent"]
-      → read_query: null, write_query: null
-
-    "write_query": the action portion, fully self-contained with all entities resolved.
-    BAD:  "Change it to Amira"
-    GOOD: "Change the assignee of issue 7 to Amira"
-
-DEFAULT: unsure between direct and dashboard_agent → choose dashboard_agent.
-
-IMPORTANT — read_query / write_query fields:
-    When agents includes BOTH "direct" AND "automation_agent", populate:
-      "read_query":  the question/lookup portion only (string)
-      "write_query": the action/modification portion only, FULLY SELF-CONTAINED
-                     with all entity references resolved. Never use pronouns like
-                     "it", "them", "this". Always include the explicit issue ID,
-                     project name, or other subject.
-    Otherwise set both to null.
-
-  Examples:
-    "Who is assigned to issue 7 and change it to Bob"
-      → read_query: "Who is assigned to issue 7"
-      → write_query: "Change the assignee of issue 7 to Bob"   ← not "change it"
-
-Respond with JSON only."""
-
-
-def _decide_routing(user_input: str, history: list) -> dict:
-    llm = get_llm()
-    messages = [SystemMessage(content=ROUTING_PROMPT)]
-    for msg in history[-4:]:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        messages.append(HumanMessage(content=content) if role == "user" else AIMessage(content=content))
-    messages.append(HumanMessage(content=f"User message: {user_input}"))
-
-    response = None
+@tool(
+    "call_data_agent",
+    description=(
+        "Fetch live data from Redmine. Use for: issue lookups, counts, assignments, "
+        "status checks, member lists, due dates, workload queries, listing issues by "
+        "tracker/priority/assignee, 'show me all X', 'how many open bugs', 'what is "
+        "Alice working on', 'show me issues without a due date', etc. "
+        "Pure read — no write actions."
+    ),
+)
+def call_data_agent(query: str) -> str:
+    """Invoke the read-only Redmine data agent."""
     try:
-        response = llm.invoke(messages)
-        raw = response.content.strip()
-
-        # Strip markdown fences
-        if "```" in raw:
-            raw = raw.split("```")[1].split("```")[0]
-            if raw.startswith("json"):
-                raw = raw[4:]
-
-        # Strip // comments (some models add them despite instructions)
-        import re
-        raw = re.sub(r"//.*", "", raw)
-
-        # Extract the first complete JSON object even if there's trailing text
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if match:
-            raw = match.group(0)
-
-        routing = json.loads(raw.strip())
-        logger.info(
-            f"[ROUTING] → {routing['route']} agents={routing.get('agents', [])} | "
-            f"{routing.get('reason', '')}"
+        return run_data_agent(query)
+    except Exception as e:
+        logger.error(f"[DATA AGENT TOOL] failed: {e}")
+        return (
+            "I wasn't able to retrieve that data. "
+            "Please check the issue or project exists and try again."
         )
-        return routing
-    except Exception as e:
-        raw_preview = ""
-        try:
-            raw_preview = response.content[:200]
-        except UnboundLocalError:
-            raw_preview = "<no response — LLM call failed>"
-        logger.warning(f"[ROUTING] Parse failed: {e} | raw={raw_preview!r} — defaulting to direct")
-        return {
-            "route": "direct", "agents": [],
-            "read_query": None, "write_query": None,
-            "reason": "routing parse failed",
-        }
 
 
-# ── Direct answer via ReAct tool loop ─────────────────────────────────────────
+@tool(
+    "call_dashboard_agent",
+    description=(
+        "Generate visual dashboards, charts, KPIs, summaries, overviews, and health "
+        "reports from Redmine data. Use for: 'summary', 'overview', 'report', "
+        "'dashboard', 'workload distribution', 'how is the team performing', "
+        "'team performance', 'priority breakdown', 'overdue report'. "
+        "Returns structured JSON the frontend renders as charts."
+    ),
+)
+def call_dashboard_agent(query: str) -> str:
+    """
+    Invoke the dashboard / visualization agent.
 
-DIRECT_SYSTEM = """You are RedMind, an intelligent Redmine project management assistant.
-
-You have access to tools that fetch live Redmine data. Use them to answer the user's question.
-
-RULES:
-- Call only the tools you actually need. One or two tool calls is usually enough.
-- Answer in plain, human-friendly language. Never mention field names, null values, or API internals.
-  Bad: "The closed_on field is null and is_closed is false."
-  Good: "The issue is still open."
-- Use exact numbers, names, and IDs from the tool results.
-- Do not invent data. If a tool returns nothing useful, say so clearly.
-- Maximum 5 sentences for simple facts. Use bullets only for lists.
-- Never mention tools, agents, API calls, or internal processes.
-- Do NOT add a closing question — the caller handles that."""
-
-
-def _direct_answer(user_input: str, history: list) -> str:
-    from langgraph.prebuilt import create_react_agent
-
-    llm = get_llm()
-    agent = create_react_agent(model=llm, tools=READ_TOOLS, prompt=DIRECT_SYSTEM)
-
-    messages = []
-    for msg in history[-4:]:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        messages.append(HumanMessage(content=content) if role == "user" else AIMessage(content=content))
-    messages.append(HumanMessage(content=user_input))
-
+    Returns the raw dashboard JSON prefixed with a sentinel so that
+    run_supervisor() can detect it and pass it straight to the frontend
+    without the supervisor LLM re-summarizing it into plain text.
+    """
     try:
-        result = agent.invoke({"messages": messages}, config={"recursion_limit": 10})
-        final = result["messages"][-1]
-        return (final.content if hasattr(final, "content") else str(final)).strip()
+        dashboard_json = run_dashboard_agent(query, history=[], session_id="supervisor")
+        # Prefix with sentinel — stripped by run_supervisor before returning to caller
+        return _DASHBOARD_SENTINEL + dashboard_json
     except Exception as e:
-        logger.error(f"[DIRECT ANSWER] Agent failed: {e}")
-        return f"I ran into an issue fetching that data: {e}. Please try rephrasing."
+        logger.error(f"[DASHBOARD AGENT TOOL] failed: {e}")
+        return _DASHBOARD_SENTINEL + json.dumps(
+            {"type": "no_data", "message": f"Dashboard error: {e}"}
+        )
 
 
-# ── Response synthesizer ──────────────────────────────────────────────────────
+@tool(
+    "call_automation_agent",
+    description=(
+        "Perform write actions in Redmine: create issues/projects, update issues "
+        "(status, assignee, priority, due date, progress), bulk-update, delete issues "
+        "(requires confirmation), assign issues to team members. "
+        "Use for any request that changes data: 'create a bug', 'assign #5 to Alice', "
+        "'close all resolved issues', 'update issue #7 status to In Progress', "
+        "'delete issue #3', 'create a project called X'."
+    ),
+)
+def call_automation_agent(query: str) -> str:
+    """Invoke the automation / write-action agent."""
+    try:
+        return run_automation_agent(query, history=[], session_id="supervisor")
+    except Exception as e:
+        logger.error(f"[AUTOMATION AGENT TOOL] failed: {e}")
+        return (
+            "⚠️ I encountered an error processing that action. "
+            "Please check that the issue, project, or user exists in Redmine and try again."
+        )
 
-SYNTHESIZE_SYSTEM = """You are RedMind, a Redmine project management assistant.
 
-Multiple processing steps ran in parallel to handle one user request.
-Combine their outputs into a SINGLE, natural, coherent reply — as if one person answered everything.
+@tool(
+    "call_risk_agent",
+    description=(
+        "Analyse project risks, blockers, and deadline concerns. Use for: "
+        "'any risks?', 'overdue issues', 'who is behind schedule', 'blockers', "
+        "'issues due in the next 3 days', 'stuck issues', 'unassigned work', "
+        "'what new risks appeared today', 'full risk scan', 'overloaded team members'."
+    ),
+)
+def call_risk_agent(query: str) -> str:
+    """Invoke the risk-analysis agent."""
+    try:
+        return run_risk_agent(query, history=[], session_id="supervisor")
+    except Exception as e:
+        logger.error(f"[RISK AGENT TOOL] failed: {e}")
+        return f"Risk analysis error: {e}"
 
-STRICT RULES:
-- ONE unified response. No section headers (no "📊 Dashboard", no "⚙️ Actions", no "---").
-- Weave information together naturally. Mention actions taken alongside relevant facts.
-- If an action succeeded (✅), mention it naturally. If it failed (⚠️ or ❌), include the reason.
-- Do not repeat the same fact twice.
-- End with exactly ONE short closing question.
-- Never mention "agents", "steps", "parallel", or any internal architecture.
-- Match the user's language."""
+
+# ── Supervisor agent ───────────────────────────────────────────────────────────
+
+_SUPERVISOR_SYSTEM = """You are RedMind — an intelligent Redmine project management partner.
+
+## SCOPE — ABSOLUTE RULE
+You ONLY answer questions related to Redmine: projects, issues, team workload,
+assignments, risks, deadlines, and project health.
+
+Call each subagent AT MOST ONCE per turn. Never call the same subagent twice.
+
+If the user asks ANYTHING outside this scope (general knowledge, coding help,
+jokes, weather, math, etc.), respond EXACTLY with:
+"I'm RedMind, your Redmine assistant. I can only help with Redmine projects,
+issues, team workload, and project health."
+Do NOT call any tools for off-topic questions. Do NOT try to be helpful outside this scope.
+
+## YOUR IDENTITY
+You understand what project managers *mean*, not just what they say.
+You reason deeply, act decisively, and communicate clearly.
+
+## YOUR TOOLS
+You have four specialised subagents available as tools:
+
+- call_data_agent        — read / fetch live Redmine data (issue lookups, counts,
+                           assignments, status checks, member lists, workload queries)
+- call_dashboard_agent   — visual summaries, charts, KPIs, health reports, team performance
+- call_automation_agent  — write actions (create, update, delete, assign issues / projects)
+- call_risk_agent        — risks, blockers, overdue issues, deadline concerns
+
+## HOW TO WORK
+
+1. **Use tools freely** — you MUST call at least one tool before answering unless the
+   user is only greeting you or asking a meta question about your capabilities.
+2. **Parallel calls** — when a request spans multiple domains, call the relevant tools
+   in the same turn.
+3. **Synthesize results** — combine everything into ONE clear, natural response.
+4. **Be concise** — project managers are busy. Lead with the answer.
+
+## SPECIAL RULE FOR DASHBOARD RESPONSES
+When call_dashboard_agent is called, its result is chart data for the UI.
+Simply confirm to the user that the dashboard is ready — do not describe the numbers.
+Example: "Here's your team workload overview." — then stop.
+The UI will render the charts automatically.
+
+## RESPONSE RULES
+- Maximum 5 sentences for direct answers.
+- Use bullet points only for lists of actions or key metrics.
+- Never mention tools, agents, or technical processes.
+- Always end with one short forward-looking question.
+- Never expose field names, null values, API flags, or implementation details.
+
+## WHEN TO ACT WITHOUT ASKING
+Execute clear commands directly. Only ask for clarification when:
+- A user name cannot be resolved.
+- Target issues cannot be identified.
+- Action is destructive (delete / close-all) without explicit confirmation."""
+
+_supervisor_agent = None
 
 
-def _synthesize_parallel_responses(
+def _get_supervisor() -> object:
+    global _supervisor_agent
+    if _supervisor_agent is None:
+        _supervisor_agent = create_agent(
+            model=get_llm(),
+            tools=[
+                call_data_agent,
+                call_dashboard_agent,
+                call_automation_agent,
+                call_risk_agent,
+            ],
+            system_prompt=_SUPERVISOR_SYSTEM,
+            name="redmind_supervisor",
+        )
+        logger.info("[SUPERVISOR] Supervisor agent initialized")
+    return _supervisor_agent
+
+
+# ── Public entry point ─────────────────────────────────────────────────────────
+
+def run_supervisor(
     user_input: str,
-    agent_results: list[tuple[str, str]],
+    history: list = None,
+    session_id: str = "default",
 ) -> str:
-    """Merge multiple agent outputs into one coherent reply."""
-    label_map = {
-        "direct": "Information",
-        "dashboard_agent": "Dashboard summary",
-        "automation_agent": "Action taken",
-        "risk_agent": "Risk analysis",
-        "error": "Error",
-    }
-    parts = [
-        f"[{label_map.get(name, name)}]\n{text.strip()}"
-        for name, text in agent_results
-        if text.strip()
-    ]
-
-    if not parts:
-        return "I wasn't able to get a response. Please try again."
-
-    # If only one agent ran, skip synthesis — just add a closing prompt
-    if len(parts) == 1:
-        text = agent_results[0][1].strip()
-        if not text.endswith("?"):
-            text += "\n\nWhat would you like to do next?"
-        return text
-
-    combined = "\n\n".join(parts)
-    prompt = (
-        f'The user said: "{user_input}"\n\n'
-        f"Outputs from the processing steps:\n\n{combined}\n\n"
-        f"Write a single unified natural response combining all of the above."
-    )
-
-    try:
-        llm = get_llm()
-        response = llm.invoke([
-            SystemMessage(content=SYNTHESIZE_SYSTEM),
-            HumanMessage(content=prompt),
-        ])
-        return response.content.strip()
-    except Exception as e:
-        logger.warning(f"[SYNTHESIZE] Failed ({e}), falling back to plain join")
-        return "\n\n".join(text.strip() for _, text in agent_results if text.strip())
-
-
-# ── Parallel agent dispatch ───────────────────────────────────────────────────
-
-def _get_agent_fn(name: str):
-    if name == "direct":
-        return lambda query, history, session_id: _direct_answer(query, history)
-    if name == "dashboard_agent":
-        return run_dashboard_agent
-    if name == "automation_agent":
-        return run_automation_agent
-    if name == "risk_agent":
-        return run_risk_agent
-    return None
-
-
-def _build_agent_queries(
-    agents: list[str],
-    original_query: str,
-    read_query: str | None,
-    write_query: str | None,
-) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for agent in agents:
-        if agent == "direct" and read_query:
-            result[agent] = read_query
-        elif agent == "automation_agent" and write_query:
-            result[agent] = write_query
-        else:
-            result[agent] = original_query
-    return result
-
-
-async def _run_agents_parallel(
-    agents: list[str],
-    query: str,
-    history: list,
-    session_id: str,
-    read_query: str | None = None,
-    write_query: str | None = None,
-) -> str:
-    loop = asyncio.get_event_loop()
-    agent_queries = _build_agent_queries(agents, query, read_query, write_query)
-
-    async def run_one(name: str):
-        fn = _get_agent_fn(name)
-        if not fn:
-            return name, f"⚠️ Unknown agent: '{name}'"
-        agent_query = agent_queries[name]
-        # Namespace session_id — prevents history bleed between agents
-        agent_session_id = f"{session_id}::{name}" if name != "direct" else session_id
-        result = await loop.run_in_executor(
-            _executor,
-            lambda q=agent_query, sid=agent_session_id: fn(q, history, sid),
-        )
-        return name, result
-
-    raw_results = await asyncio.gather(
-        *[run_one(n) for n in agents],
-        return_exceptions=True,
-    )
-
-    agent_results: list[tuple[str, str]] = []
-    for item in raw_results:
-        if isinstance(item, Exception):
-            logger.error(f"[PARALLEL] Agent error: {item}")
-            agent_results.append(("error", f"⚠️ A step encountered an error: {item}"))
-        else:
-            name, content = item
-            agent_results.append((name, content or ""))
-
-    return _synthesize_parallel_responses(query, agent_results)
-
-
-def _run_agents_parallel_sync(
-    agents: list[str],
-    query: str,
-    history: list,
-    session_id: str,
-    read_query: str | None = None,
-    write_query: str | None = None,
-) -> str:
-    coro = _run_agents_parallel(agents, query, history, session_id, read_query, write_query)
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, coro).result(timeout=120)
-        else:
-            return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
-    except Exception as e:
-        logger.error(f"[PARALLEL DISPATCH] Failed: {e}")
-        return f"Error running agents in parallel: {e}"
-
-
-# ── Main entry point ──────────────────────────────────────────────────────────
-
-def run_supervisor(user_input: str, history: list = None, session_id: str = "default") -> str:
     """
     Main entry point for every chat message.
 
-    Flow:
-      1. Cache check
-      2. Route (one LLM call; includes query split for parallel when needed)
-      3. Execute
-      4. For parallel: synthesize all outputs into one unified reply
-      5. Cache + log
+    If the supervisor called call_dashboard_agent, we extract the raw JSON
+    from the tool message and return it directly — skipping the supervisor
+    LLM's synthesis step, which would otherwise convert it to plain text.
     """
     history = history or []
     start = time.perf_counter()
 
-    # 1. Cache
-    cache_key = _make_cache_key(user_input, history)
-    cached = _cache_get(cache_key)
-    if cached:
-        log_event(
-            "supervisor_cache_hit",
-            agent="supervisor",
-            user_input=user_input,
-            latency_ms=(time.perf_counter() - start) * 1000,
-        )
-        return cached
+    with mlflow.start_run(run_name=f"supervisor_{session_id[:8]}"):
+        mlflow.log_param("session_id", session_id)
+        mlflow.log_param("user_input", user_input[:500])
+        mlflow.log_param("history_length", len(history))
 
-    # 2. Route
-    with TimedAudit("routing_decision", agent="supervisor", user_input=user_input):
-        routing = _decide_routing(user_input, history)
+        # 1. Cache check
+        cache_key = _make_cache_key(user_input, history)
+        cached = _cache_get(cache_key)
+        if cached:
+            mlflow.log_metric("cache_hit", 1)
+            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
+            log_event(
+                "supervisor_cache_hit",
+                agent="supervisor",
+                user_input=user_input,
+                latency_ms=(time.perf_counter() - start) * 1000,
+            )
+            return cached
 
-    route = routing.get("route", "direct")
-    agents = routing.get("agents", [])
-    read_query = routing.get("read_query") or None
-    write_query = routing.get("write_query") or None
+        mlflow.log_metric("cache_hit", 0)
 
-    log_event(
-        "routing",
-        agent="supervisor",
-        user_input=user_input,
-        extra={"route": route, "agents": agents, "reason": routing.get("reason", "")},
-    )
+        # 2. Build messages
+        messages = []
+        for msg in history[-4:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            messages.append(
+                HumanMessage(content=content) if role == "user"
+                else AIMessage(content=content)
+            )
+        messages.append(HumanMessage(content=user_input))
 
-    # 3. Execute
-    try:
-        if route == "direct":
-            response = _direct_answer(user_input, history)
-            if response and not response.rstrip().endswith("?"):
-                response += "\n\nWould you like me to take any action on this?"
+        # 3. Invoke supervisor
+        result = None
+        response: str
+        _error_occurred = False
 
-        elif route == "dashboard_agent":
-            response = run_dashboard_agent(user_input, history, session_id)
-
-        elif route == "automation_agent":
-            response = run_automation_agent(user_input, history, session_id)
-
-        elif route == "risk_agent":
-            response = run_risk_agent(user_input, history, session_id)
-
-        elif route == "parallel":
-            if not agents:
-                agents = ["dashboard_agent", "risk_agent"]
-            seen: set = set()
-            agents = [a for a in agents if not (a in seen or seen.add(a))]
-            valid = {"direct", "dashboard_agent", "automation_agent", "risk_agent"}
-            agents = [a for a in agents if a in valid]
-            if not agents:
-                logger.warning("[SUPERVISOR] parallel route had no valid agents; falling back to direct")
-                response = _direct_answer(user_input, history)
-            else:
-                response = _run_agents_parallel_sync(
-                    agents, user_input, history, session_id,
-                    read_query=read_query,
-                    write_query=write_query,
+        try:
+            with TimedAudit("supervisor_invoke", agent="supervisor", user_input=user_input):
+                result = _get_supervisor().invoke(
+                    {"messages": messages},
+                    config={"recursion_limit": 30},
                 )
 
-        else:
-            logger.warning(f"[SUPERVISOR] Unknown route '{route}', falling back to direct")
-            response = _direct_answer(user_input, history)
+            # ── KEY FIX: Check if a dashboard tool result is in the messages ──
+            # The supervisor LLM re-summarizes tool output into prose, which
+            # destroys the JSON structure the frontend needs.
+            # We walk the messages and if we find a ToolMessage that came from
+            # call_dashboard_agent (identified by the sentinel prefix), we return
+            # that raw JSON directly — the supervisor's prose summary is discarded.
+            dashboard_json = _find_dashboard_result(result.get("messages", []))
 
-    except Exception as e:
-        logger.error(f"[SUPERVISOR] Execution failed: {e}")
-        log_event("supervisor_error", agent="supervisor", error=str(e), success=False)
-        response = (
-            f"I encountered an error processing your request: {e}\n"
-            "Please try again or rephrase your question."
+            if dashboard_json:
+                response = dashboard_json
+                logger.info("[SUPERVISOR] Returning raw dashboard JSON to frontend")
+            else:
+                response = result["messages"][-1].content
+
+        except Exception as e:
+            _error_occurred = True
+            logger.error(f"[SUPERVISOR] Invocation failed: {e}")
+            log_event("supervisor_error", agent="supervisor", error=str(e), success=False)
+            mlflow.log_param("error", str(e)[:500])
+            response = (
+                "⚠️ I encountered an error processing your request. "
+                "Please check that the issue, project, or user exists in Redmine and try again."
+            )
+
+        # 4. Extract tool calls used
+        tool_calls_used: list[str] = []
+        if result is not None:
+            for msg in result.get("messages", []):
+                if hasattr(msg, "tool_calls"):
+                    for tc in (msg.tool_calls or []):
+                        tool_calls_used.append(tc.get("name", ""))
+
+        # 5. Cache only non-write responses
+        contains_write = "call_automation_agent" in tool_calls_used
+        if not contains_write and response and not _error_occurred:
+            _cache_set(cache_key, response)
+
+        # 6. Log metrics
+        total_ms = (time.perf_counter() - start) * 1000
+        mlflow.log_metric("latency_ms", total_ms)
+        mlflow.log_metric("response_length", len(response))
+        mlflow.log_metric("contains_write", int(contains_write))
+        mlflow.log_param("tools_called", str(tool_calls_used))
+        mlflow.log_text(user_input, "input.txt")
+        mlflow.log_text(response, "output.txt")
+
+        log_event(
+            "supervisor_complete",
+            agent="supervisor",
+            user_input=user_input,
+            latency_ms=total_ms,
+            extra={"tools_called": tool_calls_used},
+        )
+        logger.info(
+            f"[SUPERVISOR] {total_ms:.0f}ms | tools={tool_calls_used} | "
+            f"write={contains_write}"
         )
 
-    # 4. Cache — never cache write responses (they mutate state)
-    contains_write = route == "automation_agent" or (
-        route == "parallel" and "automation_agent" in agents
-    )
-    if not contains_write:
-        _cache_set(cache_key, response)
+        return response
 
-    total_ms = (time.perf_counter() - start) * 1000
-    log_event(
-        "supervisor_complete",
-        agent="supervisor",
-        user_input=user_input,
-        latency_ms=total_ms,
-        extra={"route": route, "agents": agents},
-    )
-    logger.info(f"[SUPERVISOR] {total_ms:.0f}ms via route='{route}' agents={agents}")
 
-    return response
+def _find_dashboard_result(messages: list) -> str | None:
+    """
+    Walk the message list and return the raw dashboard JSON if call_dashboard_agent
+    was invoked. Strips the sentinel prefix before returning.
+
+    Returns None if no dashboard tool was called.
+    """
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            content = msg.content
+            if isinstance(content, str) and content.startswith(_DASHBOARD_SENTINEL):
+                return content[len(_DASHBOARD_SENTINEL):]
+    return None
+
+
+def _clean_for_handoff(text: str) -> str:
+    """Strip embedded JSON tails before passing to another agent or LLM."""
+    lines = text.rstrip().split("\n")
+    while lines and lines[-1].strip().startswith("{") and "risk_payload" in lines[-1]:
+        lines.pop()
+    return "\n".join(lines).strip()

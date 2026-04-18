@@ -1,0 +1,5 @@
+In the next three days, several unassigned high‑priority issues are likely to become overdue if they remain unassigned.  
+Alice FullStack, already juggling nine open issues with two overdue, is at risk of missing additional deadlines within the week.  
+Amir Backend, with one overdue and seven open tasks, could become a bottleneck that delays dependent work by the end of the current sprint.  
+If the current workload and assignment gaps persist, the team’s overall velocity may decline, jeopardizing upcoming release targets within two weeks.  
+What would you like to do next?

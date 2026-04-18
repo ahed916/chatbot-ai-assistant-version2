@@ -1,0 +1,183 @@
+inputs,outputs,expected_route,ground_truth,category,notes,context
+show me all open bugs,"Here are all 21 open bugs in the system:
+
+- **#44** [High] payment crash | Mobile App | Unassigned
+- **#43** [High] payment crash | Mobile App | Unassigned
+- **#42** [High] payment crash | Mobile App | Unassigned
+- **#41** [High] payment crash | Mobile App | Unassigned
+- **#40** [High] payment crash | Mobile App | Unassigned
+- **#39** [High] payment crash | Mobile App | Unassigned
+- **#38** [High] payment crash | Mobile App | Unassigned
+- **#37** [High] Checkout error | E-Learning Platform | Alice Fullstack | Due: 2026-04-12 (overdue)
+- **#36** [Normal] Fix login | E-Learning Platform | Alice Fullstack
+- **#31** [High] Fix payment bug | web Platform | Unassigned
+- **#28** [High] Course search returns incorrect results when using filters | E-Learning Platform | Alice Fullstack | Due: 2026-04-10 (overdue)
+- **#25** [Very Low] Fix typo in landing page footer text | E-Learning Platform | Amir Backend | Due: 2026-05-01
+- **#22** [High] Video streaming freezes on slow internet connections | E-Learning Platform | Abir Mobile | Due: 2026-03-15 (overdue)
+- **#12** [Normal] Students don't receive course update notifications | E-Learning Platform | Amir Backend
+- **#11** [High] Course dashboard layout broken on tablets (768px-1024px) | E-Learning Platform | Abir Mobile
+- **#10** [High] Payment processing times out for courses over $100 | E-Learning Platform | Amira Frontend | Due: 2026-04-17
+- **#9** [Urgent] XSS vulnerability in course discussion forum | E-Learning Platform | Alice Fullstack
+- **#8** [Urgent] Course completion certificate shows wrong student name | E-Learning Platform | Amira Frontend
+- **#7** [High] Mobile app crashes when enrolling in course with >50 lessons | E-Learning Platform | Abir Mobile | Due: 2026-04-11 (overdue)
+- **#6** [Normal] Course progress bar shows incorrect percentage | E-Learning Platform | Alice Fullstack
+- **#4** [High] Video player crashes on iOS Safari when switching to fullscreen | E-Learning Platform | Amir Backend
+
+**Summary:** 7 bugs in Mobile App, 13 in E-Learning Platform, 1 in web Platform. 4 bugs are currently overdue.
+
+Would you like me to take any action on this?",direct,Listed open bug issues from Redmine,read,baseline read query,show me all open bugs
+who is working on issue #3?,"Sorry, need more steps to process this request.
+
+Would you like me to take any action on this?",direct,Identified the assignee of issue #3,read,single issue lookup,who is working on issue #3?
+how many open issues are there in the mobile-app project?,"There are 8 open issues in the mobile‑app project.
+
+Would you like me to take any action on this?",direct,Counted open issues in the mobile-app project,read,count query with project filter,how many open issues are there in the mobile-app project?
+list all issues assigned to Alice,"Alice has 10 issues assigned to her. Two are currently overdue:
+
+- Issue #37: a high‑priority checkout error in the E‑Learning Platform that was due on April 12, 2026 and is still marked as new.
+- Issue #28: a high‑priority problem with course search returning incorrect results when using filters in the E‑Learning Platform, due April 10, 2026 and also still new.
+
+Her other open assignments include:
+- A normal‑priority login fix in the E‑Learning Platform (issue #36, new, no due date).
+- A normal‑priority dashboard feature for the web Platform (issue #32, new, no due date).
+- A low‑priority UI spacing improvement for course cards on the dashboard in the E‑Learning Platform (issue #29, in progress, due April 18, 2026).
+- A normal‑priority database backup automation script in the E‑Learning Platform (issue #23, new, due April 20, 2026).
+- A normal‑priority task to add internationalization for Arabic and French in the E‑Learning Platform (issue #18, new, no due date).
+- A high‑priority live‑streaming feature for virtual classroom sessions in the E‑Learning Platform (issue #13, new, no due date).
+
+Two issues assigned to Alice are already closed:
+- An urgent XSS vulnerability in the course discussion forum (issue #9).
+- A normal‑priority course progress bar that showed an incorrect percentage (issue #6).
+
+In summary, Alice is handling 10 issues—8 open and 2 closed—with 2 of the open items overdue. The breakdown by priority is 3 high, 5 normal, 1 low, and 1 urgent; by project, 9 belong to the E‑Learning Platform and 1 to the web Platform.
+
+Would you like me to take any action on this?",direct,Listed all issues assigned to Alice Fullstack,read,assignee filter query,list all issues assigned to Alice
+what is the status of issue #7?,"Issue #7 is currently marked as **New**, which means it is still open and has not been worked on yet.
+
+Would you like me to take any action on this?",direct,Returned the current status of issue #7,read,single issue status check,what is the status of issue #7?
+show me all high priority issues,"Sorry, need more steps to process this request.
+
+Would you like me to take any action on this?",direct,Listed all high priority open issues,read,priority filter read query,show me all high priority issues
+who are the members of the e-learning platform project?,"The e-learning platform project has the following members:
+
+- Ahed Manager
+- Mounir Qa
+- Abir Mobile
+- Alice Fullstack
+- Amir Backend
+- Amira Frontend
+- Four additional members whose names are not available in the system.
+
+Would you like me to take any action on this?",direct,Listed team members of the E-Learning Platform project,read,member list query,who are the members of the e-learning platform project?
+create a task for login in the alpha project,"⚠️ I couldn't find a project called ""alpha"". The available projects are: ""e commerce website"", ""E-Learning Platform"", ""HR Management Platform"", ""Mobile App"", ""project test"" and 4 more. Please use one of these names and try again.
+
+What would you like to do next?",automation_agent,Gracefully reported that project alpha does not exist,write_graceful_failure,[GF] alpha project does not exist — must handle gracefully,create a task for login in the alpha project
+create a high priority bug called payment crash in mobile-app,"Creating a high priority bug issue for payment crash in mobile-app project.
+
+✅ Issue #48 created: ""payment crash""
+
+   Project:  mobile-app 
+
+   Tracker:  Bug
+
+   Priority: High
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?",automation_agent,Created a high priority bug in the mobile-app project,write,create bug with priority,create a high priority bug called payment crash in mobile-app
+close all resolved bugs,"Closing all resolved bugs by updating their status to Closed.
+
+⚠️ No issues found matching: tracker=Bug, status=Resolved.
+
+What would you like to do next?",automation_agent,Updated status of all resolved bugs to closed,write_bulk,bulk update across all projects,close all resolved bugs
+create a feature called dark mode in the e-learning platform project,"Creating a feature issue for dark mode in the e-learning platform project.
+
+✅ Issue #49 created: ""dark mode""
+
+   Project:  e-learning platform 
+
+   Tracker:  Feature
+
+   Priority: Normal
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?",automation_agent,Created a new feature issue in the E-Learning Platform project,write,create feature tracker,create a feature called dark mode in the e-learning platform project
+assign issue #999 to Amir,"Assign issue #999 to Amir.
+
+⚠️ The name 'Amir' matches multiple team members: 'Amir  Backend', 'Amira Frontend'.
+Please use the full name so I know exactly who you mean.
+
+What would you like to do next?",automation_agent,Gracefully reported that issue #999 does not exist,write_graceful_failure,[GF] issue #999 does not exist — must handle gracefully,assign issue #999 to Amir
+create a task called fix login error in the web platform project,"Creating a task to fix login error in the web platform project.
+
+✅ Issue #50 created: ""fix login error""
+
+   Project:  web platform 
+
+   Tracker:  Task
+
+   Priority: Normal
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?",automation_agent,Created a task in the web platform project,write,task creation with explicit project,create a task called fix login error in the web platform project
+assign issue #7 to Mounir and set its priority to urgent,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",automation_agent,Updated issue #7 with new assignee and priority,write,multi-field update on single issue,assign issue #7 to Mounir and set its priority to urgent
+create a bug called checkout error in e commerce website project with high priority,"⚠️ I couldn't find a project called ""e commerce website project"". The available projects are: ""e commerce website"", ""E-Learning Platform"", ""HR Management Platform"", ""Mobile App"", ""project test"" and 4 more. Please use one of these names and try again.
+
+What would you like to do next?",automation_agent,Created a high priority bug in the e-commerce website project,write,bug creation with priority,create a bug called checkout error in e commerce website project with high priority
+what are the risks this week?,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",risk_agent,Identified risks and overdue issues for the week,risk,baseline risk query,what are the risks this week?
+any overdue issues?,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",risk_agent,Found and listed overdue issues across projects,risk,overdue issues check,any overdue issues?
+which issues are behind schedule?,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",risk_agent,Listed issues that are behind schedule or overdue,risk,behind schedule phrasing variant,which issues are behind schedule?
+are there any blockers I should know about?,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",risk_agent,Identified blockers and urgent issues across projects,risk,blocker query,are there any blockers I should know about?
+show me issues due in the next 3 days,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",risk_agent,Listed issues with deadlines in the next 3 days,risk,deadline proximity query,show me issues due in the next 3 days
+give me a project summary,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",dashboard_agent,Showed project dashboard with KPIs and charts,dashboard,global summary,give me a project summary
+show me the workload dashboard,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",dashboard_agent,Displayed team workload distribution dashboard,dashboard,workload view,show me the workload dashboard
+give me an overview of all projects,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",dashboard_agent,Showed overview dashboard with all project KPIs,dashboard,global overview phrasing,give me an overview of all projects
+show me a summary of the mobile-app project,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",dashboard_agent,Showed dashboard for the Mobile App project,dashboard,project-scoped dashboard,show me a summary of the mobile-app project
+how is the team performing this week?,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",dashboard_agent,Showed team performance dashboard with KPIs,dashboard,team performance phrasing,how is the team performing this week?
+assign issue #5 to Alice and show me its status,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",parallel,Reported that issue #5 does not exist and attempted assignment,parallel_graceful_failure,"[GF] issue #5 doesn't exist — both agents should run, graceful result",assign issue #5 to Alice and show me its status
+show me issue #7 and mark it as resolved,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",parallel,Showed issue #7 details and updated its status to resolved,parallel,read + write on same issue,show me issue #7 and mark it as resolved
+who is assigned to issue #3 and reassign it to Abir,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",parallel,Showed current assignee of issue #3 and reassigned to Abir,parallel,read + write with same subject,who is assigned to issue #3 and reassign it to Abir
+give me a project summary and create a task called update documentation in mobile-app,"⚠️ I ran into an issue fetching that data. Please check that the issue or project exists in Redmine and try again.
+
+Would you like me to take any action on this?",parallel,Showed project summary dashboard and created task in mobile-app,parallel,dashboard + automation in parallel,give me a project summary and create a task called update documentation in mobile-app
+what are the overdue issues and close all resolved bugs,"I checked the system and found six overdue issues, all in the E‑Learning Platform project. The oldest are #21 (Add real‑time chat between students and instructors) and #22 (Video streaming freezes on slow internet connections), which are 45 and 30 days late, respectively. The other overdue items are #28 (Course search returns incorrect results when using filters), #24 (Optimize homepage loading speed by lazy loading images – already closed but after its due date), #7 (Mobile app crashes when enrolling in a course with more than 50 lessons), and #37 (Checkout error).  
+
+I also attempted to close any resolved bugs by setting their status to Closed, but there are currently no bugs in the “Resolved” status, so no action was needed there.  
+
+Would you like me to prioritize any of these overdue issues for you?",parallel,Listed overdue issues and closed all resolved bugs,parallel,risk + automation in parallel,what are the overdue issues and close all resolved bugs

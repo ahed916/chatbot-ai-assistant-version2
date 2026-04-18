@@ -1,0 +1,15 @@
+Creating a high priority bug payment crash in the Mobile App project.
+
+✅ Issue #44 created: "payment crash"
+
+   Project:  mobile-app 
+
+   Tracker:  Bug
+
+   Priority: High
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?

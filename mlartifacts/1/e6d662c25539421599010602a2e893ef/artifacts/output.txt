@@ -1,0 +1,3 @@
+There are currently six overdue issues, including #21 and #22, and a high‑priority issue #10 due tomorrow with no recent progress. Additionally, 22 open issues lack owners, including 11 high‑priority crashes. These indicate delivery, payment, and stability risks.  
+
+Would you like me to create a plan to address these risks?

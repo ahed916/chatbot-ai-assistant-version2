@@ -1,0 +1,5 @@
+- Six issues are currently overdue, impacting on‑time delivery.  
+- The most delayed item is #21 (Add real‑time chat) – 45 days overdue, assigned to Amir (Backend).  
+- Next are #22 (Video streaming freezes) – 30 days overdue (Abir, Mobile) and #28/#24 (Course search & homepage lazy‑load) – each 4 days overdue (Alice & Amira).  
+- Remaining overdue items: #7 (Mobile app crash) – 3 days overdue (Abir) and #37 (Checkout error) – 2 days overdue (Alice).  
+- Prioritize resolving #21 and #22 first, then address the 4‑day items to mitigate further schedule risk.

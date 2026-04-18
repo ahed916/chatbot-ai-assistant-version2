@@ -1,0 +1,1 @@
+I tried to assign issue #5 to Alice, but it looks like issue #5 doesn’t exist in Redmine—maybe double‑check the number or look at recent issues to find the correct ID. What would you like to do next?

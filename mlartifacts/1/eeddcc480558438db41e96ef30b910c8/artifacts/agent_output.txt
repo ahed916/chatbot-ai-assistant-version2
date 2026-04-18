@@ -1,0 +1,15 @@
+Creating a new bug issue for the login page crash.
+
+✅ Issue #57 created: "Login page crash"
+
+   Project:  web platform 
+
+   Tracker:  Bug
+
+   Priority: High
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?

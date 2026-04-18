@@ -1,0 +1,30 @@
+inputs,outputs,expected_route,ground_truth,context
+close all resolved bugs,"Finding all resolved bugs and closing them.
+
+⚠️ No issues found matching: tracker=Bug, status=Resolved.
+
+What would you like to do next?",automation_agent,Updated status of resolved bugs to closed,close all resolved bugs
+show me the workload dashboard,"{""type"": ""dashboard"", ""title"": ""Team Workload — All Projects"", ""generated_at"": ""2026-04-14T09:38:08.786469+00:00"", ""summary"": ""Alice Fullstack carries the heaviest load with 10 open issues. 7 issues are unassigned."", ""kpis"": [{""label"": ""Team Members"", ""value"": ""5"", ""status"": ""info""}, {""label"": ""Most Loaded"", ""value"": ""Alice Fullstack (10)"", ""status"": ""warning""}, {""label"": ""Most Overdue"", ""value"": ""Alice Fullstack (2)"", ""status"": ""critical""}, {""label"": ""Unassigned"", ""value"": ""7"", ""status"": ""warning""}], ""charts"": [{""type"": ""bar"", ""title"": ""Open Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 10}, {""label"": ""Amir  Backend"", ""value"": 8}, {""label"": ""Abir Mobile"", ""value"": 6}, {""label"": ""Amira Frontend"", ""value"": 6}, {""label"": ""Ahed Manager"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most open work (10 issues)""}, {""type"": ""bar"", ""title"": ""Overdue Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 2}, {""label"": ""Amir  Backend"", ""value"": 1}, {""label"": ""Abir Mobile"", ""value"": 2}, {""label"": ""Amira Frontend"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most overdue issues""}]}",dashboard_agent,Displayed team workload distribution dashboard,show me the workload dashboard
+any overdue issues?,"- #21: Real‑time chat feature for the e‑learning platform is 45 days overdue (Amir, Backend).  
+- #22: Video streaming freezes on slow connections are 30 days overdue (Abir, Mobile).  
+- #28: Course search returns incorrect results with filters, 4 days overdue (Alice, Fullstack).  
+- #24: Homepage image lazy‑loading optimization is 4 days overdue (Amira, Frontend) – currently marked Closed.  
+- #7: Mobile app crashes when enrolling in courses with >50 lessons, 3 days overdue (Abir, Mobile).  
+- #37: Checkout error is 2 days overdue (Alice, Fullstack).  
+
+All six items are impacting on‑time delivery and should be prioritized for resolution.",risk_agent,Found and listed overdue issues across projects,any overdue issues?
+create a high priority bug called payment crash in mobile-app,"Creating a high priority bug: payment crash in the mobile-app project.
+
+✅ Issue #43 created: ""payment crash""
+
+   Project:  mobile-app 
+
+   Tracker:  Bug
+
+   Priority: High
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?",automation_agent,Created a high priority bug in the mobile-app project,create a high priority bug called payment crash in mobile-app

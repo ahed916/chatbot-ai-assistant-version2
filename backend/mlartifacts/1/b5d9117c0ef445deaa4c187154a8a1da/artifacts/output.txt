@@ -1,0 +1,1 @@
+There are 28 open bugs, with 6 overdue and many currently unassigned. Notable overdue issues include #58, #37, #28, #22, #10, and #7. Several payment‑crash bugs in the Mobile App remain unassigned and lack due dates. Would you like me to assign any of these or set due dates?

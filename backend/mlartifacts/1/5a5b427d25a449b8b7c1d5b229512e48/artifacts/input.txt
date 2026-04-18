@@ -1,0 +1,1 @@
+list all issues assigned to Alice

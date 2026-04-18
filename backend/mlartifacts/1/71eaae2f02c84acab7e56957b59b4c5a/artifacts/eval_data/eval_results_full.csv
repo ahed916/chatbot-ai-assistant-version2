@@ -1,0 +1,46 @@
+inputs,outputs,expected_route,ground_truth,context
+show me all open bugs,"There are 20 open bug issues: 6 in the Mobile App project, 13 in the E-Learning Platform, and 1 in the web Platform. Four of these bugs are overdue. Notable urgent issues include #9 (XSS vulnerability in the course discussion forum) and #8 (course completion certificate shows the wrong student name). Several payment‑crash bugs in the Mobile App remain unassigned.
+
+Would you like me to take any action on this?",direct,Listed open bug issues from Redmine,show me all open bugs
+create a task for login in the alpha project,"Creating a login task in the Alpha project.
+
+⚠️ Project 'alpha' not found.
+Available projects: 'e commerce website' (e-commerce-website), 'E-Learning Platform' (customer-support), 'HR Management Platform' (hr-management), 'Mobile App' (mobile-app), 'project test' (project-test), 'project test 2' (project-test-2), 'test' (test), 'Test Automation Project' (test-auto-1773358265), 'web Platform' (development-platform)
+
+What would you like to do next?",automation_agent,Created a new task in the alpha project successfully,create a task for login in the alpha project
+what are the risks this week?,"Risk 1: Overdue critical issues in E-Learning Platform — 5 issues are 3–45 days late (#21, #22, #28, #24, #7), risking release delays and user trust. → Immediately assign a clear owner to each (already assigned) and start a 15‑minute daily sync to track progress.
+
+Risk 2: High number of unassigned issues in Mobile App — 6 open issues have no owner, risking missed sprint goals and work falling through cracks. → Conduct a triage meeting today to assign each unassigned issue based on tracker and priority (e.g., bugs to Abir/Amira, features to Alice/Amir).
+
+Risk 3: Workload concentration on Alice and Abir — each carries 8 and 6 open issues (including overdue), risking burnout and further delays. → Move 2 low‑priority tasks from each to Amir or Amira (who have 4 and 5 open issues respectively) to rebalance load this week.",risk_agent,Identified risks and overdue issues for the week,what are the risks this week?
+give me a project summary,"{""type"": ""dashboard"", ""title"": ""All Projects Overview"", ""generated_at"": ""2026-04-14T10:59:17.046041+00:00"", ""summary"": ""9 projects tracked. 39 open issues total, 6 overdue."", ""kpis"": [{""label"": ""Total Projects"", ""value"": ""9"", ""status"": ""info""}, {""label"": ""Open Issues"", ""value"": ""39"", ""status"": ""warning""}, {""label"": ""Total Overdue"", ""value"": ""6"", ""status"": ""critical""}, {""label"": ""Most Loaded"", ""value"": ""E-Learning Platform (29)"", ""status"": ""warning""}, {""label"": ""Most Overdue"", ""value"": ""E-Learning Platform (6)"", ""status"": ""critical""}], ""charts"": [{""type"": ""bar"", ""title"": ""Open Issues per Project"", ""data"": [{""label"": ""E-Learning Platform"", ""value"": 29}, {""label"": ""Mobile App"", ""value"": 7}, {""label"": ""web Platform"", ""value"": 3}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""E-Learning Platform has the most open work (29 issues)""}, {""type"": ""bar"", ""title"": ""Overdue Issues per Project"", ""data"": [{""label"": ""E-Learning Platform"", ""value"": 6}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""E-Learning Platform has the most overdue issues""}]}",dashboard_agent,Showed project dashboard with KPIs and charts,give me a project summary
+assign issue #5 to Alice and show me its status,"I tried to assign issue #5 to Alice, but it looks like issue #5 doesn't exist or you don't have access to it. Please double-check the issue number. What would you like to do next?",parallel,Showed issue #5 details and assigned it to Alice,assign issue #5 to Alice and show me its status
+who is working on issue #3?,"Issue #3 does not exist in the system. Please verify the issue ID or provide additional context (such as the project name) if you meant a different issue.
+
+Would you like me to take any action on this?",direct,Identified the assignee of issue #3,who is working on issue #3?
+close all resolved bugs,"Finding all resolved bugs and closing them.
+
+⚠️ No issues found matching: tracker=Bug, status=Resolved.
+
+What would you like to do next?",automation_agent,Updated status of resolved bugs to closed,close all resolved bugs
+show me the workload dashboard,"{""type"": ""dashboard"", ""title"": ""Team Workload — All Projects"", ""generated_at"": ""2026-04-14T11:07:42.169552+00:00"", ""summary"": ""Alice Fullstack carries the heaviest load with 10 open issues. 8 issues are unassigned."", ""kpis"": [{""label"": ""Team Members"", ""value"": ""5"", ""status"": ""info""}, {""label"": ""Most Loaded"", ""value"": ""Alice Fullstack (10)"", ""status"": ""warning""}, {""label"": ""Most Overdue"", ""value"": ""Alice Fullstack (2)"", ""status"": ""critical""}, {""label"": ""Unassigned"", ""value"": ""8"", ""status"": ""warning""}], ""charts"": [{""type"": ""bar"", ""title"": ""Open Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 10}, {""label"": ""Amir  Backend"", ""value"": 8}, {""label"": ""Abir Mobile"", ""value"": 6}, {""label"": ""Amira Frontend"", ""value"": 6}, {""label"": ""Ahed Manager"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most open work (10 issues)""}, {""type"": ""bar"", ""title"": ""Overdue Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 2}, {""label"": ""Amir  Backend"", ""value"": 1}, {""label"": ""Abir Mobile"", ""value"": 2}, {""label"": ""Amira Frontend"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most overdue issues""}]}",dashboard_agent,Displayed team workload distribution dashboard,show me the workload dashboard
+any overdue issues?,"- Six issues are currently overdue, impacting on‑time delivery.  
+- The most delayed item is #21 (Add real‑time chat) – 45 days overdue, assigned to Amir (Backend).  
+- Next are #22 (Video streaming freezes) – 30 days overdue (Abir, Mobile) and #28/#24 (Course search & homepage lazy‑load) – each 4 days overdue (Alice & Amira).  
+- Remaining overdue items: #7 (Mobile app crash) – 3 days overdue (Abir) and #37 (Checkout error) – 2 days overdue (Alice).  
+- Prioritize resolving #21 and #22 first, then address the 4‑day items to mitigate further schedule risk.",risk_agent,Found and listed overdue issues across projects,any overdue issues?
+create a high priority bug called payment crash in mobile-app,"Creating a high priority bug payment crash in the Mobile App project.
+
+✅ Issue #44 created: ""payment crash""
+
+   Project:  mobile-app 
+
+   Tracker:  Bug
+
+   Priority: High
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?",automation_agent,Created a high priority bug in the mobile-app project,create a high priority bug called payment crash in mobile-app

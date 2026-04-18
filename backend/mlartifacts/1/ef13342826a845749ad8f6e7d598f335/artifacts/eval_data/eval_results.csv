@@ -1,0 +1,27 @@
+inputs,outputs,expected_route,ground_truth,context
+close all resolved bugs,"Finding all resolved bugs and closing them.
+
+⚠️ No issues found matching: tracker=Bug, status=Resolved.
+
+What would you like to do next?",automation_agent,Updated status of resolved bugs to closed,close all resolved bugs
+show me the workload dashboard,"{""type"": ""dashboard"", ""title"": ""Team Workload — All Projects"", ""generated_at"": ""2026-04-13T21:40:56.539833+00:00"", ""summary"": ""Alice Fullstack carries the heaviest load with 10 open issues. 6 issues are unassigned."", ""kpis"": [{""label"": ""Team Members"", ""value"": ""5"", ""status"": ""info""}, {""label"": ""Most Loaded"", ""value"": ""Alice Fullstack (10)"", ""status"": ""warning""}, {""label"": ""Most Overdue"", ""value"": ""Alice Fullstack (2)"", ""status"": ""critical""}, {""label"": ""Unassigned"", ""value"": ""6"", ""status"": ""warning""}], ""charts"": [{""type"": ""bar"", ""title"": ""Open Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 10}, {""label"": ""Amir  Backend"", ""value"": 8}, {""label"": ""Abir Mobile"", ""value"": 6}, {""label"": ""Amira Frontend"", ""value"": 6}, {""label"": ""Ahed Manager"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most open work (10 issues)""}, {""type"": ""bar"", ""title"": ""Overdue Issues per Developer"", ""data"": [{""label"": ""Alice Fullstack"", ""value"": 2}, {""label"": ""Amir  Backend"", ""value"": 1}, {""label"": ""Abir Mobile"", ""value"": 2}, {""label"": ""Amira Frontend"", ""value"": 1}], ""xKey"": ""label"", ""yKey"": ""value"", ""insight"": ""Alice Fullstack has the most overdue issues""}]}",dashboard_agent,Displayed team workload distribution dashboard,show me the workload dashboard
+any overdue issues?,"- Six E‑Learning Platform tasks are overdue, with the oldest (#21) delayed by 44 days and the newest (#37) by 1 day.  
+- The overdue items span backend, mobile, frontend, and full‑stack work, affecting chat functionality, video streaming, search accuracy, homepage performance, app stability, and checkout.  
+- All six issues are currently blocking on‑time delivery and should be addressed in order of severity and impact.  
+- Prioritize resolving the real‑time chat and video‑streaming defects first, followed by the search and homepage optimizations, then the mobile crash and checkout error.  
+- Assign clear owners and set interim checkpoints to regain schedule confidence.",risk_agent,Found and listed overdue issues across projects,any overdue issues?
+create a high priority bug called payment crash in mobile-app,"Creating a high priority bug payment crash in the mobile-app project.
+
+✅ Issue #42 created: ""payment crash""
+
+   Project:  mobile-app 
+
+   Tracker:  Bug
+
+   Priority: High
+
+   Assignee: Unassigned
+
+   Due date: Not set
+
+What would you like to do next?",automation_agent,Created a high priority bug in the mobile-app project,create a high priority bug called payment crash in mobile-app

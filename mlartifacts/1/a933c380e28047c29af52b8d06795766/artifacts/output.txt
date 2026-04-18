@@ -1,0 +1,9 @@
+Yes, there are a few areas that need attention:
+
+- **Overdue issues:** 6 tasks are past their due dates, all in the E‑Learning Platform.  
+- **High‑priority load:** 28 of the 54 open issues are marked high or urgent, with 15 concentrated in the E‑Learning Platform.  
+- **Workload imbalance:** Alice Fullstack currently handles 10 open issues, the highest individual load on the team.  
+
+These factors suggest pressure on delivery and risk of missed deadlines.  
+
+Would you like me to suggest a rebalancing plan or focus on clearing the overdue items first?
