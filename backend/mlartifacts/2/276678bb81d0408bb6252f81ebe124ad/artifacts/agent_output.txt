@@ -1,0 +1,7 @@
+Reopening issue #50 by setting its status to New
+
+⚠️ Redmine rejected the status change on issue #50.
+Reason: Redmine did not apply the status change. Current status is still 'Closed'. Allowed transitions from here: none.
+Your role may not allow this transition — check workflow settings with your admin.
+
+What would you like to do next?

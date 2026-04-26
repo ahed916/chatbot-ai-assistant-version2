@@ -1,0 +1,3 @@
+❌ Error creating issue: create_issue() got an unexpected keyword argument 'start_date'.
+
+Would you like to try creating the issue with different details?

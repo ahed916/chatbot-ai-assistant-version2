@@ -1,0 +1,7 @@
+✅ Issue #71 created successfully.
+  Title: dark mode
+  Project: E-Learning Platform
+  Assignee: Alice
+  Due: 2026-04-23
+
+Would you like to add any additional details or comments to this issue?

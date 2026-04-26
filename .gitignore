@@ -1,5 +1,6 @@
 # Backend environment
 /backend/.env
+/frontend/.env.local
 
 # Node modules
 /node_modules

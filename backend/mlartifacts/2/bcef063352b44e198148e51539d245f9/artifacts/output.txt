@@ -1,0 +1,3 @@
+I couldn't find a team member named Bob. Could you confirm the exact name or check if they're added to the project?
+
+Would you like to try again with the correct name?

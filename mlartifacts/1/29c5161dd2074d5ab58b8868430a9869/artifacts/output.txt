@@ -1,0 +1,3 @@
+I need your confirmation before permanently deleting issue #68. Please reply **"Yes"** to confirm the deletion, or **"No"** to cancel.
+
+How would you like to proceed?

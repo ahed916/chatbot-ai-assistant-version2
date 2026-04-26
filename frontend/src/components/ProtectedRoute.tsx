@@ -1,32 +1,17 @@
 import { Navigate } from "react-router-dom";
-import { useAuth, UserRole } from "@/contexts/AuthContext";
+import { useAuth } from "@/hooks/useAuth";
 
-interface ProtectedRouteProps {
+interface Props {
   children: React.ReactNode;
-  allowedRoles: UserRole[];
+  requiredRole: "admin" | "project_manager";
 }
 
-export function ProtectedRoute({
-  children,
-  allowedRoles,
-}: ProtectedRouteProps) {
-  const { user, loading } = useAuth();
+export function ProtectedRoute({ children, requiredRole }: Props) {
+  const { session, role, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    );
-  }
+  if (loading) return <div>Loading...</div>;
+  if (!session) return <Navigate to="/login" replace />;
+  if (role !== requiredRole) return <Navigate to="/login" replace />;
 
-  if (!user) return <Navigate to="/login" replace />;
-
-  /*if (!allowedRoles.includes(user.role)) {
-    // Redirect to appropriate home based on role
-    const home = user.role === "admin" ? "/admin" : "/chatbot";
-    return <Navigate to={home} replace />;
-  }
-
-  return <>{children}</>;*/
+  return <>{children}</>;
 }

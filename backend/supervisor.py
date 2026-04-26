@@ -1,24 +1,33 @@
 """
 supervisor.py — RedMind Supervisor (Subagents Pattern)
 
-KEY FIX for dashboard rendering:
-  The supervisor was receiving the JSON string from call_dashboard_agent and then
-  passing it to the LLM, which re-summarized it into prose ("Here is your dashboard...").
-  The frontend never saw the JSON, only text.
+Changes vs previous version:
 
-  Solution (from LangChain subagents docs pattern):
-    call_dashboard_agent is marked with a special sentinel prefix so that
-    run_supervisor() can detect it and return the raw JSON directly,
-    bypassing the supervisor LLM's synthesis step entirely.
+  - Removed all CONFIRMATION_SENTINEL / _pending_delete / _pending_bulk_delete
+    imports and references. The automation agent now handles confirmation
+    internally via LangGraph interrupt() — the supervisor needs no special-casing.
 
-  This is NOT routing — the supervisor still decides WHICH tool to call.
-  We only intercept the result AFTER the tool has already run.
+  - Removed the confirmation-prompt sentinel detection in run_supervisor().
+    _find_tool_result_by_sentinel() is kept only for dashboard JSON pass-through.
+
+  - Removed the cache bypass that skipped caching when a pending delete was
+    detected. Automation responses are never cached (contains_write guard
+    already handles this correctly).
+
+  - Removed the stable _automation_session_id ContextVar — it was only needed
+    to key _pending_delete/bulk across turns. The automation agent now uses its
+    own LangGraph thread_id (keyed on session_id) for interrupt state persistence.
+
+  - Simplified the duplicate-write guard: no longer exempts a second
+    call_automation_agent invocation for "confirmation reply" reasons, because
+    there is no longer a turn where the supervisor calls the automation agent twice.
 """
 
 import hashlib
 import json
 import logging
 import time
+from contextvars import ContextVar
 
 import mlflow
 import redis as redis_lib
@@ -41,9 +50,11 @@ from llm import get_llm
 
 logger = logging.getLogger(__name__)
 
-# Sentinel prefix added to dashboard tool results so we can detect them
-# in the final message list and return them verbatim to the frontend.
+# Sentinel prefix for dashboard JSON — returned verbatim to frontend
 _DASHBOARD_SENTINEL = "__DASHBOARD_JSON__:"
+
+# ContextVar: session_id passed to call_automation_agent tool
+_session_id_var: ContextVar[str] = ContextVar("session_id", default="default")
 
 # ── Redis ──────────────────────────────────────────────────────────────────────
 try:
@@ -136,7 +147,6 @@ def call_dashboard_agent(query: str) -> str:
     """
     try:
         dashboard_json = run_dashboard_agent(query, history=[], session_id="supervisor")
-        # Prefix with sentinel — stripped by run_supervisor before returning to caller
         return _DASHBOARD_SENTINEL + dashboard_json
     except Exception as e:
         logger.error(f"[DASHBOARD AGENT TOOL] failed: {e}")
@@ -157,9 +167,16 @@ def call_dashboard_agent(query: str) -> str:
     ),
 )
 def call_automation_agent(query: str) -> str:
-    """Invoke the automation / write-action agent."""
+    """
+    Invoke the automation / write-action agent.
+
+    The automation agent manages its own LangGraph thread state (keyed on
+    session_id) so interrupt() / Command(resume=) for delete confirmation
+    works transparently across turns — no supervisor involvement required.
+    """
+    session_id = _session_id_var.get()
     try:
-        return run_automation_agent(query, history=[], session_id="supervisor")
+        return run_automation_agent(query, history=[], session_id=session_id)
     except Exception as e:
         logger.error(f"[AUTOMATION AGENT TOOL] failed: {e}")
         return (
@@ -224,6 +241,14 @@ You have four specialised subagents available as tools:
 3. **Synthesize results** — combine everything into ONE clear, natural response.
 4. **Be concise** — project managers are busy. Lead with the answer.
 
+## WRITE ACTIONS — STRICT RULES
+- Call call_automation_agent EXACTLY ONCE per turn. Never call it a second time.
+- If the automation agent returns an error or validation failure, report that error
+  to the user as-is. Do NOT retry, do NOT call call_automation_agent again.
+- Retrying write actions causes duplicate records (e.g. the same issue created twice).
+- If the automation agent returns a confirmation prompt (starts with ⚠️), relay it
+  to the user EXACTLY as written. Do NOT add any text before or after it.
+
 ## SPECIAL RULE FOR DASHBOARD RESPONSES
 When call_dashboard_agent is called, its result is chart data for the UI.
 Simply confirm to the user that the dashboard is ready — do not describe the numbers.
@@ -274,19 +299,26 @@ def run_supervisor(
     """
     Main entry point for every chat message.
 
-    If the supervisor called call_dashboard_agent, we extract the raw JSON
-    from the tool message and return it directly — skipping the supervisor
-    LLM's synthesis step, which would otherwise convert it to plain text.
+    Sets _session_id_var so call_automation_agent can forward the correct
+    session_id to run_automation_agent() for LangGraph thread scoping.
+
+    After the supervisor runs, checks ToolMessages for the dashboard sentinel
+    (passed directly to frontend without LLM synthesis). Automation confirmation
+    prompts are now plain text returned by the automation agent — no special
+    sentinel detection needed.
     """
     history = history or []
     start = time.perf_counter()
+
+    # Make session_id available to call_automation_agent tool
+    _session_id_var.set(session_id)
 
     with mlflow.start_run(run_name=f"supervisor_{session_id[:8]}"):
         mlflow.log_param("session_id", session_id)
         mlflow.log_param("user_input", user_input[:500])
         mlflow.log_param("history_length", len(history))
 
-        # 1. Cache check
+        # Cache check — automation responses are excluded later via contains_write
         cache_key = _make_cache_key(user_input, history)
         cached = _cache_get(cache_key)
         if cached:
@@ -302,7 +334,7 @@ def run_supervisor(
 
         mlflow.log_metric("cache_hit", 0)
 
-        # 2. Build messages
+        # Build messages
         messages = []
         for msg in history[-4:]:
             role = msg.get("role", "user")
@@ -313,7 +345,7 @@ def run_supervisor(
             )
         messages.append(HumanMessage(content=user_input))
 
-        # 3. Invoke supervisor
+        # Invoke supervisor
         result = None
         response: str
         _error_occurred = False
@@ -325,19 +357,18 @@ def run_supervisor(
                     config={"recursion_limit": 30},
                 )
 
-            # ── KEY FIX: Check if a dashboard tool result is in the messages ──
-            # The supervisor LLM re-summarizes tool output into prose, which
-            # destroys the JSON structure the frontend needs.
-            # We walk the messages and if we find a ToolMessage that came from
-            # call_dashboard_agent (identified by the sentinel prefix), we return
-            # that raw JSON directly — the supervisor's prose summary is discarded.
-            dashboard_json = _find_dashboard_result(result.get("messages", []))
+            all_messages = result.get("messages", [])
+
+            # Dashboard JSON passes through verbatim (no LLM synthesis)
+            dashboard_json = _find_tool_result_by_sentinel(
+                all_messages, _DASHBOARD_SENTINEL
+            )
 
             if dashboard_json:
                 response = dashboard_json
                 logger.info("[SUPERVISOR] Returning raw dashboard JSON to frontend")
             else:
-                response = result["messages"][-1].content
+                response = all_messages[-1].content
 
         except Exception as e:
             _error_occurred = True
@@ -349,7 +380,7 @@ def run_supervisor(
                 "Please check that the issue, project, or user exists in Redmine and try again."
             )
 
-        # 4. Extract tool calls used
+        # Extract tool calls used
         tool_calls_used: list[str] = []
         if result is not None:
             for msg in result.get("messages", []):
@@ -357,16 +388,30 @@ def run_supervisor(
                     for tc in (msg.tool_calls or []):
                         tool_calls_used.append(tc.get("name", ""))
 
-        # 5. Cache only non-write responses
+        # Duplicate write guard
+        automation_call_count = tool_calls_used.count("call_automation_agent")
+        if automation_call_count > 1:
+            logger.error(
+                f"[SUPERVISOR] call_automation_agent invoked {automation_call_count}x "
+                f"in a single turn (session={session_id}). Possible duplicate writes."
+            )
+            _error_occurred = True
+            response = (
+                "⚠️ Something went wrong — the action may have been attempted more than once. "
+                "Please check Redmine for duplicate issues before retrying."
+            )
+
+        # Cache only non-write responses
         contains_write = "call_automation_agent" in tool_calls_used
         if not contains_write and response and not _error_occurred:
             _cache_set(cache_key, response)
 
-        # 6. Log metrics
+        # Metrics
         total_ms = (time.perf_counter() - start) * 1000
         mlflow.log_metric("latency_ms", total_ms)
         mlflow.log_metric("response_length", len(response))
         mlflow.log_metric("contains_write", int(contains_write))
+        mlflow.log_metric("automation_call_count", automation_call_count)
         mlflow.log_param("tools_called", str(tool_calls_used))
         mlflow.log_text(user_input, "input.txt")
         mlflow.log_text(response, "output.txt")
@@ -386,18 +431,17 @@ def run_supervisor(
         return response
 
 
-def _find_dashboard_result(messages: list) -> str | None:
+def _find_tool_result_by_sentinel(messages: list, sentinel: str) -> str | None:
     """
-    Walk the message list and return the raw dashboard JSON if call_dashboard_agent
-    was invoked. Strips the sentinel prefix before returning.
-
-    Returns None if no dashboard tool was called.
+    Walk the message list and return the content of the first ToolMessage
+    whose content starts with the given sentinel prefix (stripped).
+    Returns None if no such message exists.
     """
     for msg in messages:
         if isinstance(msg, ToolMessage):
             content = msg.content
-            if isinstance(content, str) and content.startswith(_DASHBOARD_SENTINEL):
-                return content[len(_DASHBOARD_SENTINEL):]
+            if isinstance(content, str) and content.startswith(sentinel):
+                return content[len(sentinel):]
     return None
 
 

@@ -1,0 +1,1 @@
+show me issues and their priorities and the users assigned to them

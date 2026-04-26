@@ -1,21 +1,57 @@
 """
 Risk Detection Tools for Redmine Project Manager Chatbot.
 Used by the Risk Agent to detect and report project risks.
+
+FIX: Added _issue_cache to avoid fetching the same project's issues
+multiple times per scan cycle. All 5 tools share one fetch per project_id.
+Cache is cleared between scan cycles via clear_issue_cache().
+
+FIX: _resolve() now passes numeric project IDs DIRECTLY to list_issues()
+without going through resolve_project_id(). resolve_project_id() requires
+the project to appear in list_projects(), which excludes private projects
+in some Redmine configurations. Since the scheduler already has the numeric
+ID from Redmine memberships, there's no need to resolve it — Redmine's
+/issues.json accepts a numeric project_id directly.
 """
 
 from langchain.tools import tool
 import redmine as rm
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from collections import defaultdict
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
 TODAY = date.today()
 
+# ── Per-cycle issue cache ─────────────────────────────────────────────────────
+
+_cache_lock = threading.Lock()
+_issue_cache: dict = {}
+
+
+def clear_issue_cache():
+    """Call this once per PM scan cycle to reset the cache."""
+    with _cache_lock:
+        _issue_cache.clear()
+
+
+def _get_issues(project_id: str | None, status: str) -> list:
+    """Cached wrapper around rm.list_issues()."""
+    cache_key = (project_id, status)
+    with _cache_lock:
+        if cache_key in _issue_cache:
+            return _issue_cache[cache_key]
+
+    issues = rm.list_issues(project_id=project_id, status=status, limit=200)
+
+    with _cache_lock:
+        _issue_cache[cache_key] = issues
+    return issues
+
 
 def _days_since(date_str: str) -> int:
-    """Return how many days ago a date string (ISO format) was."""
     try:
         d = datetime.fromisoformat(date_str.replace("Z", "+00:00")).date()
         return (TODAY - d).days
@@ -24,12 +60,41 @@ def _days_since(date_str: str) -> int:
 
 
 def _days_until(date_str: str) -> int:
-    """Return how many days until a date string (ISO format)."""
     try:
         d = date.fromisoformat(date_str)
         return (d - TODAY).days
     except Exception:
         return 999
+
+
+def _resolve(project_id: str) -> str | None:
+    """
+    Return the project_id to pass to rm.list_issues().
+
+    FIX: If project_id is a bare numeric string (e.g. "5", "10"), pass it
+    DIRECTLY to the issues endpoint — Redmine accepts numeric project IDs
+    in /issues.json without needing to resolve the symbolic identifier first.
+    This bypasses resolve_project_id() entirely for the scheduler path,
+    which means private projects that don't appear in list_projects() work
+    correctly.
+
+    Only call resolve_project_id() when the input looks like a name or
+    symbolic identifier (e.g. "mobile-app", "HR Management Platform").
+    """
+    if not project_id:
+        return None
+
+    # Numeric ID — pass straight through, no resolution needed
+    if project_id.strip().lstrip('-').isdigit():
+        return project_id.strip()
+
+    # Name/identifier — resolve via list_projects()
+    try:
+        resolved = rm.resolve_project_id(project_id)
+        return str(resolved)
+    except Exception as e:
+        logger.warning("[RISK TOOLS] Could not resolve project %r: %s", project_id, e)
+        raise
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -40,13 +105,10 @@ def _days_until(date_str: str) -> int:
 def detect_overdue_issues(project_id: str = "") -> str:
     """
     RISK DETECTION: Find all open issues that are past their due date.
-    These represent active delays — the #1 project risk indicator.
-
     project_id: optional filter by project name, identifier, or numeric ID.
-    Returns a structured risk report with overdue days per issue.
     """
-    resolved = rm.resolve_project_id(project_id) if project_id else None
-    issues = rm.list_issues(project_id=resolved, status="open", limit=200)
+    resolved = _resolve(project_id) if project_id else None
+    issues = _get_issues(resolved, "open")
 
     overdue = []
     for i in issues:
@@ -68,7 +130,6 @@ def detect_overdue_issues(project_id: str = "") -> str:
             f"     → Overdue by {days_late} day(s) | Assignee: {assignee} "
             f"| Due: {i['due_date']} | Status: {i['status']['name']}"
         )
-
     lines.append(f"\n📊 IMPACT: {len(overdue)} issue(s) are blocking on-time delivery.")
     return "\n".join(lines)
 
@@ -81,15 +142,12 @@ def detect_overdue_issues(project_id: str = "") -> str:
 def detect_urgent_due_soon(project_id: str = "", days_threshold: int = 3) -> str:
     """
     RISK DETECTION: Find high/urgent priority issues due within the next N days.
-    These are future overdue risks that need immediate attention.
-
     project_id: optional project filter.
     days_threshold: number of days to look ahead (default: 3).
     """
-    resolved = rm.resolve_project_id(project_id) if project_id else None
-    issues = rm.list_issues(project_id=resolved, status="open", limit=200)
+    resolved = _resolve(project_id) if project_id else None
+    issues = _get_issues(resolved, "open")  # cache hit — no second HTTP call
 
-    # priority_id: 3=High, 4=Urgent, 5=Immediate
     HIGH_PRIORITY_IDS = {3, 4, 5}
     HIGH_PRIORITY_NAMES = {"high", "urgent", "immediate"}
 
@@ -99,8 +157,8 @@ def detect_urgent_due_soon(project_id: str = "", days_threshold: int = 3) -> str
         if not due:
             continue
         priority_name = i.get("priority", {}).get("name", "").lower()
-        priority_id = i.get("priority", {}).get("id", 0)
-        is_high = priority_id in HIGH_PRIORITY_IDS or priority_name in HIGH_PRIORITY_NAMES
+        priority_id_val = i.get("priority", {}).get("id", 0)
+        is_high = priority_id_val in HIGH_PRIORITY_IDS or priority_name in HIGH_PRIORITY_NAMES
         if not is_high:
             continue
         days_left = _days_until(due)
@@ -121,7 +179,6 @@ def detect_urgent_due_soon(project_id: str = "", days_threshold: int = 3) -> str
             f"  🚨 #{i['id']} [{project}] {i['subject']}\n"
             f"     → Due {urgency} | Priority: {priority} | Assignee: {assignee}"
         )
-
     lines.append(f"\n⚡ RECOMMENDATION: Escalate these issues immediately to avoid breach.")
     return "\n".join(lines)
 
@@ -134,13 +191,11 @@ def detect_urgent_due_soon(project_id: str = "", days_threshold: int = 3) -> str
 def detect_stuck_issues(project_id: str = "", stale_days: int = 5) -> str:
     """
     RISK DETECTION: Find in-progress issues with no updates for N+ days.
-    These indicate blocked developers or ignored tasks.
-
     project_id: optional project filter.
     stale_days: inactivity threshold in days (default: 5).
     """
-    resolved = rm.resolve_project_id(project_id) if project_id else None
-    issues = rm.list_issues(project_id=resolved, status="*", limit=200)
+    resolved = _resolve(project_id) if project_id else None
+    issues = _get_issues(resolved, "*")  # separate cache key from "open"
 
     IN_PROGRESS_NAMES = {"in progress", "in_progress", "doing", "wip", "started"}
 
@@ -169,7 +224,6 @@ def detect_stuck_issues(project_id: str = "", stale_days: int = 5) -> str:
             f"     → No update for {days_idle} day(s) | Assignee: {assignee} "
             f"| Status: {i['status']['name']}"
         )
-
     lines.append(
         f"\n🔍 RECOMMENDATION: Check with assignees for blockers. "
         f"Consider reassigning or breaking issues into smaller tasks."
@@ -185,12 +239,10 @@ def detect_stuck_issues(project_id: str = "", stale_days: int = 5) -> str:
 def detect_unassigned_issues(project_id: str = "") -> str:
     """
     RISK DETECTION: Find open issues with no assignee.
-    Unassigned issues risk slipping through unnoticed.
-
     project_id: optional project filter.
     """
-    resolved = rm.resolve_project_id(project_id) if project_id else None
-    issues = rm.list_issues(project_id=resolved, status="open", limit=200)
+    resolved = _resolve(project_id) if project_id else None
+    issues = _get_issues(resolved, "open")  # cache hit
 
     unassigned = [i for i in issues if not i.get("assigned_to")]
     if not unassigned:
@@ -205,7 +257,6 @@ def detect_unassigned_issues(project_id: str = "") -> str:
             f"  👤 #{i['id']} [{project}] {i['subject']}\n"
             f"     → Priority: {priority} | Due: {due} | Status: {i['status']['name']}"
         )
-
     lines.append(
         f"\n📋 RECOMMENDATION: Assign these issues to team members to ensure accountability."
     )
@@ -220,14 +271,11 @@ def detect_unassigned_issues(project_id: str = "") -> str:
 def detect_no_due_date_issues(project_id: str = "") -> str:
     """
     RISK DETECTION: Find open issues with no due date assigned.
-    These are scheduling blind spots — work that may never get prioritized.
-
     project_id: optional project filter.
     """
-    resolved = rm.resolve_project_id(project_id) if project_id else None
-    issues = rm.list_issues(project_id=resolved, status="open", limit=200)
+    resolved = _resolve(project_id) if project_id else None
+    issues = _get_issues(resolved, "open")  # cache hit
 
-    # Focus on normal+ priority (priority_id >= 2)
     no_due = [
         i for i in issues
         if not i.get("due_date")
@@ -246,7 +294,6 @@ def detect_no_due_date_issues(project_id: str = "") -> str:
             f"  ❗ #{i['id']} [{project}] {i['subject']}\n"
             f"     → Priority: {priority} | Assignee: {assignee}"
         )
-
     lines.append(
         f"\n📅 RECOMMENDATION: Set due dates so these issues appear in sprint planning."
     )
@@ -261,13 +308,11 @@ def detect_no_due_date_issues(project_id: str = "") -> str:
 def detect_overloaded_assignees(project_id: str = "", threshold: int = 10) -> str:
     """
     RISK DETECTION: Identify team members with too many open tasks.
-    High load leads to burnout, delays, and quality issues.
-
     project_id: optional project filter.
     threshold: max acceptable open issues per person (default: 10).
     """
-    resolved = rm.resolve_project_id(project_id) if project_id else None
-    issues = rm.list_issues(project_id=resolved, status="open", limit=200)
+    resolved = _resolve(project_id) if project_id else None
+    issues = _get_issues(resolved, "open")  # cache hit
 
     load = defaultdict(list)
     for i in issues:
@@ -290,7 +335,6 @@ def detect_overloaded_assignees(project_id: str = "", threshold: int = 10) -> st
             f"  🔴 {name}: {len(items)} open issue(s)"
             + (f" — including {overdue_count} overdue!" if overdue_count else "")
         )
-
     lines.append(
         f"\n⚖️ RECOMMENDATION: Redistribute tasks or adjust sprint scope to reduce bottlenecks."
     )
@@ -304,15 +348,12 @@ def detect_overloaded_assignees(project_id: str = "", threshold: int = 10) -> st
 @tool
 def detect_milestone_risk(project_id: str = "") -> str:
     """
-    RISK DETECTION: Find clusters of issues all due in the same week,
-    indicating potential milestone crunch periods.
-
+    RISK DETECTION: Find clusters of issues all due in the same week.
     project_id: optional project filter.
     """
-    resolved = rm.resolve_project_id(project_id) if project_id else None
-    issues = rm.list_issues(project_id=resolved, status="open", limit=200)
+    resolved = _resolve(project_id) if project_id else None
+    issues = _get_issues(resolved, "open")  # cache hit
 
-    # Group open issues by ISO week
     week_buckets = defaultdict(list)
     for i in issues:
         due = i.get("due_date")
@@ -320,7 +361,7 @@ def detect_milestone_risk(project_id: str = "") -> str:
             try:
                 d = date.fromisoformat(due)
                 if d >= TODAY:
-                    week_key = d.strftime("%Y-W%V")  # ISO week
+                    week_key = d.strftime("%Y-W%V")
                     week_buckets[week_key].append(i)
             except Exception:
                 pass
@@ -346,7 +387,6 @@ def detect_milestone_risk(project_id: str = "") -> str:
             + (f" | {high_prio} high-priority" if high_prio else "")
             + (f" | {unassigned} unassigned ⚠️" if unassigned else "")
         )
-
     lines.append(
         "\n🗓️ RECOMMENDATION: Review sprint capacity for crunch weeks and redistribute work early."
     )
@@ -354,20 +394,18 @@ def detect_milestone_risk(project_id: str = "") -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# RISK 8 — Long-Running Issues (open too long without closure)
+# RISK 8 — Long-Running Issues
 # ─────────────────────────────────────────────────────────────────────────────
 
 @tool
 def detect_long_running_issues(project_id: str = "", max_days: int = 30) -> str:
     """
     RISK DETECTION: Find open issues that have been open for more than N days.
-    Long-running issues often indicate scope creep or forgotten work.
-
     project_id: optional project filter.
     max_days: threshold in days (default: 30).
     """
-    resolved = rm.resolve_project_id(project_id) if project_id else None
-    issues = rm.list_issues(project_id=resolved, status="open", limit=200)
+    resolved = _resolve(project_id) if project_id else None
+    issues = _get_issues(resolved, "open")  # cache hit
 
     long_running = []
     for i in issues:
@@ -383,14 +421,13 @@ def detect_long_running_issues(project_id: str = "", max_days: int = 30) -> str:
 
     long_running.sort(reverse=True, key=lambda x: x[0])
     lines = [f"🕰️ RISK: {len(long_running)} ISSUE(S) OPEN FOR ≥{max_days} DAYS\n"]
-    for age, i in long_running[:15]:  # cap at 15 to avoid flooding
+    for age, i in long_running[:15]:
         assignee = i.get("assigned_to", {}).get("name", "unassigned")
         project = i.get("project", {}).get("name", "?")
         lines.append(
             f"  ⏳ #{i['id']} [{project}] {i['subject']}\n"
             f"     → Open for {age} day(s) | Assignee: {assignee} | Status: {i['status']['name']}"
         )
-
     lines.append(
         f"\n🔎 RECOMMENDATION: Review and either close, break down, or re-prioritize these issues."
     )
@@ -405,11 +442,10 @@ def detect_long_running_issues(project_id: str = "", max_days: int = 30) -> str:
 def run_full_risk_scan(project_id: str = "") -> str:
     """
     Run ALL risk detection checks and return a consolidated risk report.
-    This is the main entry point when the user asks for a general risk assessment.
-
     project_id: optional filter by project name, identifier, or numeric ID.
-    Returns a prioritized summary of all detected risks.
     """
+    clear_issue_cache()
+
     label = f" for project '{project_id}'" if project_id else " (all projects)"
     report = [
         f"{'='*60}",

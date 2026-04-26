@@ -1,0 +1,15 @@
+Creating a new bug issue for the login problem in the e learning platform project and assigning it to Abir.
+
+✅ Issue #63 created: "fix the login bug"
+
+   Project:  e learning platform 
+
+   Tracker:  Bug
+
+   Priority: Normal
+
+   Assignee: Abir
+
+   Due date: Not set
+
+What would you like to do next?

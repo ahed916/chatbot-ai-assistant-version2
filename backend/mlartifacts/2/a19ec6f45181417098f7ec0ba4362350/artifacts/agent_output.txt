@@ -1,0 +1,8 @@
+I tried to create the issue, but Redmine returned a validation error: **Due date must be greater than start date**.  
+
+The due date you provided (`2025-08-26`) is in the past relative to today's date (`2026-04-19`). Redmine requires the due date to be on or after the issue's start date (which is set to the creation date).
+
+Please provide a valid due date (e.g., a date today or in the future) so I can create the issue for you. Once you give me a corrected date, I’ll proceed with creating the issue in the **e learning platform** project with:
+- Subject: `fix login problem`
+- Tracker: `Feature`
+- Due date: [your corrected date]

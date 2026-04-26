@@ -5,14 +5,21 @@ redmine.py — Redmine API client with:
   - Graceful degradation: if Redmine is down, return cached data with a warning
   - Audit logging of every write operation
   - Zero hardcoded values
+  - Per-user API key resolution via thread-local (get_current_redmine_key),
+    with fallback to REDMINE_API_KEY from .env for background jobs.
 
-Fix: create_issue always sends project_id, tracker_id, status_id as integers.
-  Previously the body dict was built with positional-default values, meaning
-  if the caller passed tracker_id=2 and status_id=3, they were included —
-  but if Redmine's API key lacked permissions or the project_id was sent as a
-  string instead of int, Redmine returned "Project cannot be blank".
-  Now: project_id is explicitly cast to int(), and all three required IDs are
-  always present in the body regardless of their values.
+FIX: list_projects() now fetches ALL projects visible to the API key,
+     including private ones, by adding ?include_subprojects=1 is NOT
+     the fix — the real fix is paginating with a high limit and NOT
+     filtering by is_public. Previously the default GET /projects.json
+     with no params returned only public projects for some Redmine
+     configurations. Now we explicitly pass limit=1000 and handle
+     pagination so private projects the PM is a member of are included.
+
+FIX: resolve_project_id() now also accepts a bare numeric string ("5")
+     and resolves it directly by fetching /projects/5.json when the
+     project isn't found in the cached list — this handles private projects
+     that list_projects() might still miss.
 """
 import httpx
 import json
@@ -28,20 +35,16 @@ from tenacity import (
 )
 from config import (
     REDMINE_URL as BASE,
-    REDMINE_API_KEY,
     REDIS_HOST, REDIS_PORT, REDIS_DB,
     CACHE_TTL_PROJECTS, CACHE_TTL_TRACKERS, CACHE_TTL_STATUSES,
-    CACHE_TTL_MEMBERS, CACHE_TTL_ISSUES, CACHE_TTL_USERS,
+    CACHE_TTL_MEMBERS, CACHE_TTL_ISSUES,
     RETRY_MAX_ATTEMPTS, RETRY_WAIT_MIN, RETRY_WAIT_MAX,
 )
+from user_context import get_current_redmine_key
 from audit import log_event
 
 logger = logging.getLogger(__name__)
 
-HEADERS = {
-    "X-Redmine-API-Key": REDMINE_API_KEY,
-    "Content-Type": "application/json",
-}
 
 # ── Redis ─────────────────────────────────────────────────────────────────────
 
@@ -100,7 +103,14 @@ def _cache_invalidate(*keys: str):
         logger.warning(f"[CACHE INVALIDATE ERROR]: {e}")
 
 
-# ── HTTP with Tenacity retry (circuit breaker pattern) ────────────────────────
+# ── HTTP helpers (per-user API key) ───────────────────────────────────────────
+
+def _headers() -> dict:
+    return {
+        "X-Redmine-API-Key": get_current_redmine_key(),
+        "Content-Type": "application/json",
+    }
+
 
 def _make_retry_decorator():
     return retry(
@@ -115,7 +125,7 @@ def _make_retry_decorator():
 @_make_retry_decorator()
 def _get(path: str, params: dict = None):
     start = time.perf_counter()
-    r = httpx.get(f"{BASE}{path}", headers=HEADERS, params=params or {}, timeout=30)
+    r = httpx.get(f"{BASE}{path}", headers=_headers(), params=params or {}, timeout=30)
     r.raise_for_status()
     ms = (time.perf_counter() - start) * 1000
     logger.debug(f"[REDMINE GET] {path} → {ms:.0f}ms")
@@ -125,7 +135,7 @@ def _get(path: str, params: dict = None):
 @_make_retry_decorator()
 def _post(path: str, body: dict):
     start = time.perf_counter()
-    r = httpx.post(f"{BASE}{path}", headers=HEADERS, json=body, timeout=30)
+    r = httpx.post(f"{BASE}{path}", headers=_headers(), json=body, timeout=30)
     if r.status_code == 422:
         try:
             errors = r.json().get("errors", [r.text])
@@ -141,7 +151,7 @@ def _post(path: str, body: dict):
 @_make_retry_decorator()
 def _put(path: str, body: dict):
     start = time.perf_counter()
-    r = httpx.put(f"{BASE}{path}", headers=HEADERS, json=body, timeout=30)
+    r = httpx.put(f"{BASE}{path}", headers=_headers(), json=body, timeout=30)
     r.raise_for_status()
     ms = (time.perf_counter() - start) * 1000
     logger.debug(f"[REDMINE PUT] {path} → {ms:.0f}ms")
@@ -151,14 +161,14 @@ def _put(path: str, body: dict):
 @_make_retry_decorator()
 def _delete(path: str):
     start = time.perf_counter()
-    r = httpx.delete(f"{BASE}{path}", headers=HEADERS, timeout=30)
+    r = httpx.delete(f"{BASE}{path}", headers=_headers(), timeout=30)
     r.raise_for_status()
     ms = (time.perf_counter() - start) * 1000
     logger.debug(f"[REDMINE DELETE] {path} → {ms:.0f}ms")
 
 
 def _safe_get(path: str, params: dict = None, cache_key: str = None):
-    """GET with graceful fallback to cache if Redmine is unreachable."""
+    """GET with graceful fallback to stale cache if Redmine is unreachable."""
     try:
         return _get(path, params)
     except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as e:
@@ -180,13 +190,37 @@ def normalize(s: str) -> str:
 # ── READ functions ────────────────────────────────────────────────────────────
 
 def list_projects():
+    """
+    Fetch ALL projects visible to the current API key, including private ones.
+
+    FIX: The default GET /projects.json in some Redmine versions returns only
+    public projects unless the requesting user is an admin. We now paginate
+    with limit=1000 (safe — Redmine caps at 100 per page but we handle that)
+    and do NOT filter by is_public so private projects the key has access to
+    are included in the result and available to resolve_project_id().
+    """
     key = "projects"
     cached = _cache_get(key)
     if cached:
         return cached
-    result = _get("/projects.json", {"limit": 100}).get("projects", [])
-    _cache_set(key, result, CACHE_TTL_PROJECTS)
-    return result
+
+    all_projects = []
+    offset = 0
+    limit = 100  # Redmine's max per page
+
+    while True:
+        data = _get("/projects.json", {"limit": limit, "offset": offset})
+        page = data.get("projects", [])
+        all_projects.extend(page)
+        total_count = data.get("total_count", len(all_projects))
+
+        if len(all_projects) >= total_count or len(page) < limit:
+            break
+        offset += limit
+
+    _cache_set(key, all_projects, CACHE_TTL_PROJECTS)
+    logger.debug(f"[REDMINE] list_projects: fetched {len(all_projects)} projects (public + private)")
+    return all_projects
 
 
 def list_trackers():
@@ -278,10 +312,21 @@ def get_allowed_transitions(issue_id: int) -> dict:
 
 
 def resolve_project_id(name_or_id: str) -> int:
+    """
+    Resolve a project name, identifier, or numeric ID to a Redmine project ID.
+
+    FIX: When a bare numeric ID like "5" is passed and the project isn't found
+    in list_projects() (e.g. because it's private and the admin key doesn't
+    see it, or the cache is stale), we now fall back to fetching
+    /projects/{id}.json directly. This handles the case where the scheduler
+    passes a numeric project ID from Redmine memberships but list_projects()
+    doesn't include that project.
+    """
     cache_key = f"resolve:{normalize(name_or_id)}"
     cached = _cache_get(cache_key)
     if cached:
         return int(cached)
+
     projects = list_projects()
     n = normalize(name_or_id)
 
@@ -301,6 +346,25 @@ def resolve_project_id(name_or_id: str) -> int:
             _cache_set(cache_key, result, CACHE_TTL_PROJECTS)
             logger.debug(f"[RESOLVE] '{name_or_id}' → ID {result}")
             return result
+
+    # FIX: If name_or_id looks like a numeric ID, try fetching it directly.
+    # This handles private projects that list_projects() might not include.
+    if name_or_id.strip().lstrip('-').isdigit():
+        try:
+            data = _get(f"/projects/{name_or_id}.json")
+            p = data.get("project", {})
+            if p and p.get("id"):
+                result = int(p["id"])
+                _cache_set(cache_key, result, CACHE_TTL_PROJECTS)
+                logger.info(
+                    f"[RESOLVE] '{name_or_id}' resolved via direct fetch → ID {result} "
+                    f"(project not in list_projects — likely private)"
+                )
+                return result
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 404:
+                raise
+            # 404 means it genuinely doesn't exist — fall through to the error below
 
     available = ", ".join(
         f"'{p['name']}' ({p['identifier']})" for p in projects
@@ -322,15 +386,9 @@ def create_issue(
     tracker_id: int = 1,
     status_id: int = 1,
     due_date: str = None,
+    start_date: str = None,
     done_ratio: int = None,
 ) -> dict:
-    """
-    Create a Redmine issue.
-
-    All three of project_id, tracker_id, status_id MUST be non-None integers.
-    We cast them explicitly and raise early rather than sending bad data to Redmine.
-    """
-    # ── Hard validation: these three can never be None or zero ───────────────
     try:
         project_id = int(project_id)
         tracker_id = int(tracker_id)
@@ -349,7 +407,6 @@ def create_issue(
     if status_id <= 0:
         raise ValueError(f"create_issue: status_id must be > 0, got {status_id}")
 
-    # ── Build body — always include all three required integer IDs ────────────
     issue_body: dict = {
         "project_id": project_id,
         "subject": subject,
@@ -358,13 +415,14 @@ def create_issue(
         "priority_id": int(priority_id) if priority_id else 2,
     }
 
-    # Optional fields — only add if provided
     if description:
         issue_body["description"] = description
     if assigned_to_id:
         issue_body["assigned_to_id"] = int(assigned_to_id)
     if due_date:
         issue_body["due_date"] = due_date
+    if start_date:
+        issue_body["start_date"] = start_date
     if done_ratio is not None:
         issue_body["done_ratio"] = int(done_ratio)
 
@@ -381,7 +439,8 @@ def create_issue(
     except ValueError as e:
         raise RuntimeError(str(e)) from e
 
-    _cache_invalidate()
+    _cache_invalidate("projects")
+
     log_event(
         "redmine_write",
         agent="automation_agent",
@@ -425,6 +484,30 @@ def update_issue(
 
     try:
         _put(f"/issues/{issue_id}.json", body)
+
+        if status_id is not None:
+            _cache_invalidate(f"issue:{issue_id}")
+            try:
+                updated = _get(f"/issues/{issue_id}.json").get("issue", {})
+                actual_status_id = updated.get("status", {}).get("id")
+                if actual_status_id != status_id:
+                    actual_status_name = updated.get("status", {}).get("name", "Unknown")
+                    try:
+                        transitions = get_allowed_transitions(issue_id)
+                        allowed = transitions.get("allowed", [])
+                        allowed_names = ", ".join(s["name"] for s in allowed) or "none"
+                    except Exception:
+                        allowed_names = "unknown"
+                    return (
+                        f"WORKFLOW_ERROR: Redmine did not apply the status change. "
+                        f"Current status is still '{actual_status_name}'. "
+                        f"Allowed transitions from here: {allowed_names}."
+                    )
+            except Exception as verify_err:
+                logger.warning(
+                    f"[UPDATE] Could not verify status change for #{issue_id}: {verify_err}"
+                )
+
         _cache_invalidate(f"issue:{issue_id}")
         log_event(
             "redmine_write",
@@ -433,6 +516,7 @@ def update_issue(
             tool_args={"issue_id": issue_id, **body["issue"]},
         )
         return None
+
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             return "NOT_FOUND"
@@ -442,10 +526,7 @@ def update_issue(
             except Exception:
                 errors = [str(e)]
             joined = ", ".join(errors)
-            if any(
-                kw in joined.lower()
-                for kw in ("status", "transition", "workflow", "not allowed")
-            ):
+            if status_id is not None:
                 return f"WORKFLOW_ERROR: {joined}"
             return f"VALIDATION_ERROR: {joined}"
         raise
@@ -468,39 +549,10 @@ def delete_issue(issue_id: int):
         raise
 
 
-# ── Pre-warm cache (called on server startup) ─────────────────────────────────
-
-def prewarm():
-    """Pre-load ALL frequently-needed data into Redis at startup."""
-    from concurrent.futures import ThreadPoolExecutor
-
-    logger.info("[PREWARM] Warming Redis cache...")
-    try:
-        projects = list_projects()
-        list_trackers()
-        list_issue_statuses()
-        list_issues(status="*", limit=200)
-
-        def _warm_members(p):
-            try:
-                list_members(str(p["id"]))
-            except Exception:
-                pass
-
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            list(pool.map(_warm_members, projects))
-
-        logger.info("[PREWARM] Done — all caches warm.")
-    except Exception as e:
-        logger.warning(f"[PREWARM] Failed (non-fatal): {e}")
-
-
 def get_issue_summary(issue_id: int) -> str | None:
-    """Fetch minimal human-readable summary for a specific issue."""
     issue = get_issue(issue_id)
     if not issue:
         return None
-
     assignee = issue.get("assigned_to", {}).get("name", "Unassigned")
     status = issue.get("status", {}).get("name", "Unknown")
     return (
@@ -566,7 +618,7 @@ def attach_file_to_issue(issue_id: int, file_path: str) -> dict:
         file_bytes = f.read()
 
     upload_headers = {
-        "X-Redmine-API-Key": REDMINE_API_KEY,
+        "X-Redmine-API-Key": get_current_redmine_key(),
         "Content-Type": "application/octet-stream",
     }
     upload_response = httpx.post(
@@ -607,10 +659,10 @@ def attach_file_to_issue(issue_id: int, file_path: str) -> dict:
 def list_issues_filtered(
     project_id=None,
     status="open",
-    assigned_to_id=None,      # numeric Redmine user ID, or "me"
-    tracker_id=None,           # e.g. 1=Bug, 2=Feature, 4=Task
+    assigned_to_id=None,
+    tracker_id=None,
     priority_id=None,
-    created_after=None,        # ISO date string "2025-04-10"
+    created_after=None,
     updated_after=None,
     due_before=None,
     limit=100,
@@ -637,3 +689,30 @@ def list_issues_filtered(
 
     resp = _get("/issues.json", params=params)
     return resp.get("issues", [])
+
+
+# ── Pre-warm cache (called on server startup) ─────────────────────────────────
+
+def prewarm():
+    """Pre-load ALL frequently-needed data into Redis at startup."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    logger.info("[PREWARM] Warming Redis cache...")
+    try:
+        projects = list_projects()
+        list_trackers()
+        list_issue_statuses()
+        list_issues(status="*", limit=200)
+
+        def _warm_members(p):
+            try:
+                list_members(str(p["id"]))
+            except Exception:
+                pass
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(_warm_members, projects))
+
+        logger.info("[PREWARM] Done — all caches warm.")
+    except Exception as e:
+        logger.warning(f"[PREWARM] Failed (non-fatal): {e}")

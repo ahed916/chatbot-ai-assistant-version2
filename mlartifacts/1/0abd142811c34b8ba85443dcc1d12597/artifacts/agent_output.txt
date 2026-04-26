@@ -1,0 +1,5 @@
+❌ Cannot update issue #30.
+   Current status : Closed
+   Requested status: In Progress
+   Reason          : The Redmine workflow does not allow this transition.
+   Redmine says    : Redmine did not apply the status change. Current status is still 'Closed'. Allowed transitions from here: none.

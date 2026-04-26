@@ -1,0 +1,3 @@
+Error creating issue: Redmine validation error: Due date must be greater than start date
+
+Would you like me to adjust the start date to today and try again?

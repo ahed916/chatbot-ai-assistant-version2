@@ -1,390 +1,310 @@
 """
-agents/automation_agent.py  (v2 — graceful failure handling for missing data)
+agents/automation_agent.py  (v10 — clean subagent pattern + LangGraph interrupt() HITL)
 
-KEY CHANGES from v1:
-  - _format_response() now detects validation errors from the ActionExecutor
-    and formats them as clean user messages instead of raw error strings
-  - Missing project:  "Project 'alpha' not found" →
-      "⚠️ I couldn't find a project called 'alpha'. Available projects are: ..."
-  - Missing issue:    "Issue #5 doesn't exist" →
-      "⚠️ Issue #5 doesn't exist — please double-check the issue number."
-  - Missing user:     "User 'John' not found" →
-      "⚠️ I couldn't find a team member called 'John'. Please use the full name."
-  - All other logic is IDENTICAL to v1 — only error formatting changed.
+WHAT CHANGED FROM v9:
 
-See v1 (automation_agent_v1.py) for full architecture documentation.
+  - Removed ALL manual routing logic (the big if/elif chain that checked
+    _pending_delete, _pending_bulk_delete, keyword sets, etc.).
+
+  - Removed ALL keyword-based confirmation intent resolution
+    (_resolve_confirmation_intent, _CONFIRM_WORDS, _CANCEL_WORDS, etc.).
+
+  - The agent is now a plain create_agent() subagent — same pattern as
+    data_agent.py / dashboard_agent.py / risk_agent.py. No pre/post
+    processing around agent.invoke().
+
+  - Human-in-the-loop for delete confirmation is now handled via
+    LangGraph's interrupt() primitive inside the delete_redmine_issue tool.
+    The tool pauses execution, surfaces a prompt to the user, and the
+    supervisor resumes the graph with the user's reply via Command(resume=).
+    The LLM never sees a "yes/no" classification problem.
+
+  - The CONFIRMATION_SENTINEL and _pending_delete / _pending_bulk_delete
+    dicts are GONE. The supervisor no longer needs to detect them or do
+    any special-casing for automation responses.
+
+  - Requires a checkpointer (InMemorySaver) so that interrupt() can persist
+    graph state between the pause and the resume call.
+
+ARCHITECTURE:
+  Supervisor calls call_automation_agent(query) as a tool.
+  The automation agent runs as a LangGraph subagent via create_agent().
+  When the agent decides to delete an issue it calls delete_redmine_issue().
+  That tool calls interrupt() — execution pauses and the confirmation
+  prompt is surfaced to the frontend.
+  The user replies; run_automation_agent() detects the pending interrupt,
+  calls agent.invoke(Command(resume=user_reply)) with the same thread_id,
+  the tool receives the reply, and either deletes the issue or cancels.
+
+CHECKPOINTER / THREAD ID:
+  - A single InMemorySaver is shared across all sessions.
+  - Each user session uses "automation_{session_id}" as the thread_id so
+    interrupt state survives between turns within the same conversation.
+  - Swap InMemorySaver for a Redis/Postgres saver in production if you need
+    persistence across process restarts.
 """
-import json
+from __future__ import annotations
+
 import logging
-import re
 import time
-from collections import deque
 
 import mlflow
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain.agents import create_agent
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command, interrupt
 
-from llm import get_llm
-from action_schema import parse_action_plan
-from action_executor import ActionExecutor
+import redmine as rm
+from tools.write_tools import (
+    create_redmine_issue,
+    update_redmine_issue,
+    bulk_update_issues,
+    request_bulk_delete_confirmation,
+)
 from audit import log_event
+from llm import get_llm
+from datetime import date as _date, timedelta
 
 logger = logging.getLogger(__name__)
 
-_MAX_HISTORY_ENTRIES = 40
-_session_history: dict[str, deque] = {}
+# ── Shared checkpointer ────────────────────────────────────────────────────────
+# InMemorySaver keeps interrupt state in-process.
+# Swap for RedisSaver / PostgresSaver in production.
+_checkpointer = InMemorySaver()
 
 
-def _get_internal_history(session_id: str) -> list[dict]:
-    dq = _session_history.get(session_id)
-    return list(dq) if dq else []
+# ── Delete tool with interrupt() ───────────────────────────────────────────────
 
+@tool
+def delete_redmine_issue(issue_id: int) -> str:
+    """
+    Permanently delete a Redmine issue. Automatically asks the user to
+    confirm before doing anything — you do NOT need to ask first.
 
-def _save_internal_history(session_id: str, user_msg: str, assistant_msg: str):
-    if session_id not in _session_history:
-        _session_history[session_id] = deque(maxlen=_MAX_HISTORY_ENTRIES)
-    dq = _session_history[session_id]
-    dq.append({"role": "user", "content": user_msg})
-    dq.append({"role": "assistant", "content": assistant_msg})
+    Call this whenever the user asks to delete a specific issue by ID.
+    The built-in human approval step handles the confirmation prompt.
 
+    Args:
+        issue_id: The Redmine issue ID to delete.
+    """
+    # interrupt() pauses the LangGraph execution and surfaces the payload
+    # to the frontend. When the user replies, the graph resumes and
+    # `user_reply` contains whatever the user typed.
+    user_reply: str = interrupt(
+        {
+            "type": "delete_confirmation",
+            "issue_id": issue_id,
+            "message": (
+                f"⚠️ **Confirmation required** — you are about to permanently delete "
+                f"issue #{issue_id}. This cannot be undone.\n\n"
+                f"Reply **\"Yes\"** to confirm, or **\"No\"** to cancel."
+            ),
+        }
+    )
 
-def clear_session_history(session_id: str) -> None:
-    if session_id in _session_history:
-        del _session_history[session_id]
-    if session_id in _pending_confirmations:
-        del _pending_confirmations[session_id]
-    logger.debug(f"[AUTO] Cleared session history for '{session_id}'")
+    # Simple check — did the user cancel?
+    normalized = user_reply.strip().lower()
+    _cancel = {"no", "n", "nope", "nah", "cancel", "stop", "abort",
+               "nevermind", "never mind", "don't", "do not"}
+    if normalized in _cancel or any(w in normalized for w in _cancel):
+        return f"❌ Deletion cancelled. Issue #{issue_id} was NOT deleted."
 
-
-def _merge_histories(external: list[dict], internal: list[dict]) -> list[dict]:
-    if external:
-        return external
-    return internal
-
-
-# ── System prompt (UNCHANGED from v1) ─────────────────────────────────────────
-SYSTEM_PROMPT = """You are RedMind's Automation Agent. Your ONLY job is to convert a user request into a JSON ActionPlan.
-
-You do NOT execute actions. You do NOT call tools. You output ONE JSON object.
-The backend validates and executes everything — you are the planner only.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT FORMAT (always return this JSON, nothing else):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{
-  "preamble": "optional short message describing what you'll do",
-  "requires_confirmation": false,
-  "confirmation_prompt": "",
-  "actions": [
-    {
-      "type": "<action_type>",
-      "description": "human-readable summary of this action",
-      "params": { ... }
-    }
-  ]
-}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SUPPORTED ACTION TYPES AND PARAMS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-create_issue:
-  required: project (str), subject (str)
-  optional: description, assignee (name), priority (Low/Normal/High/Urgent/Immediate),
-            tracker (Bug/Feature/Task/Support), due_date (YYYY-MM-DD)
-
-update_issue:
-  required: issue_id (int)
-  optional: status (str), assignee (name), priority, tracker, due_date,
-            subject, description, done_ratio (0-100), notes (str)
-
-bulk_update_issues:
-  required: issue_ids (list of ints)
-  optional: status, assignee (name), priority, tracker, notes
-
-delete_issue:
-  required: issue_id (int)
-  note: ALWAYS set requires_confirmation=true and write a clear confirmation_prompt
-
-create_project:
-  required: name (str), identifier (str — lowercase, no spaces, hyphens ok)
-  optional: description, is_public (bool, default false)
-
-add_file_to_issue:
-  required: issue_id (int), file_path (str)
-
-search_and_update:
-  Filter params: filter_project, filter_tracker, filter_priority, filter_status, filter_assignee
-  Update params: status, assignee, priority, tracker, notes
-
-unsupported:
-  params: { "reason": "why this is not supported" }
-
-needs_clarification:
-  params: { "question": "what you need to know" }
-  IMPORTANT: Only use this when critical info is genuinely missing.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TRACKER RULES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  • "task", "todo", "implement X", "add X", "set up X"  → tracker = "Task"
-  • "bug", "error", "crash", "broken", "fix X"          → tracker = "Bug"
-  • "feature", "enhancement", "new X"                   → tracker = "Feature"
-  • "support", "help", "question"                        → tracker = "Support"
-  DEFAULT: omit tracker field if unclear. Backend defaults to "Task".
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STATUS AND PRIORITY DEFAULTS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  - No status mentioned → OMIT status field. Backend defaults to "New".
-  - No priority mentioned → OMIT priority field. Backend defaults to "Normal".
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-READING CONVERSATION HISTORY — CRITICAL RULES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULE 1: If a previous message disambiguated a name, re-issue the original action with the clarified name.
-RULE 2: Short replies ("yes", a name, a number) always refer to the previous assistant message.
-RULE 3: Never ask what you already know from history.
-RULE 4: If history asked for a missing field and current message provides it, reconstruct the FULL action.
-RULE 5: When called as part of a parallel operation, focus ONLY on the current write request.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STATUS MAPPINGS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  "ready for code review" / "in review" → "Code Review"
-  "done" → "Resolved" or "Closed"
-  "wont fix" → "Rejected"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Always output valid JSON. Never wrap in markdown fences.
-2. For delete: ALWAYS requires_confirmation=true.
-3. Bulk operations: use ONE bulk_update_issues action.
-4. Pass user names as strings — backend resolves them.
-5. Multiple actions = multiple entries in "actions" array.
-6. Do NOT invent optional fields. Omit if not mentioned.
-7. done_ratio must be integer 0-100.
-8. Dates: resolve natural language to YYYY-MM-DD. Today is {TODAY}.
-
-Respond with JSON only."""
-
-
-# ── LLM planner ────────────────────────────────────────────────────────────────
-
-def _plan(query: str, history: list[dict]) -> dict:
-    from datetime import date
-    today_str = date.today().isoformat()
-    system = SYSTEM_PROMPT.replace("{TODAY}", today_str)
-
-    llm = get_llm()
-    messages = [SystemMessage(content=system)]
-    for turn in history:
-        if turn["role"] == "user":
-            messages.append(HumanMessage(content=turn["content"]))
-        else:
-            messages.append(AIMessage(content=turn["content"]))
-    messages.append(HumanMessage(content=query))
-
-    response = llm.invoke(messages)
-    if hasattr(response, 'usage_metadata') and response.usage_metadata:
-        mlflow.log_metric("input_tokens", response.usage_metadata.get("input_tokens", 0))
-        mlflow.log_metric("output_tokens", response.usage_metadata.get("output_tokens", 0))
-    raw_text = response.content.strip()
-    raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
-    raw_text = re.sub(r"\s*```$", "", raw_text)
-
+    # Anything else is treated as confirmation — attempt the delete.
     try:
-        return json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        logger.error(f"[PLANNER] Failed to parse LLM JSON: {e}\nRaw: {raw_text}")
-        raise ValueError(f"LLM returned invalid JSON: {e}")
+        error = rm.delete_issue(issue_id)
+    except Exception as e:
+        logger.error(f"[AUTO] delete_issue raised: {e}")
+        return f"❌ Failed to delete issue #{issue_id}: {e}"
+
+    if error == "NOT_FOUND":
+        return f"⚠️ Issue #{issue_id} doesn't exist — it may have already been deleted."
+    if error:
+        return f"❌ Failed to delete issue #{issue_id}: {error}"
+
+    return f"🗑️ Issue #{issue_id} has been permanently deleted."
 
 
-_pending_confirmations: dict[str, "ActionPlan"] = {}
-_executor_instance = ActionExecutor()
+# ── Tool list ──────────────────────────────────────────────────────────────────
+
+_AGENT_TOOLS = [
+    create_redmine_issue,
+    update_redmine_issue,
+    bulk_update_issues,
+    request_bulk_delete_confirmation,
+    delete_redmine_issue,         # replaces the old sentinel-based approach
+]
 
 
-# ── Graceful failure formatter ─────────────────────────────────────────────────
+def _build_system_prompt() -> str:
+    today = _date.today()
+    tomorrow = today + timedelta(days=1)
+    next_week = today + timedelta(days=7)
+    return f"""You are RedMind's Automation Agent. You perform write actions in Redmine.
 
-def _format_execution_result(preamble: str | None, result: str) -> str:
-    """
-    Format the executor result as a clean user-facing message.
+TODAY'S DATE: {today.isoformat()}
+Use this for resolving relative dates:
+  - "tomorrow"   → {tomorrow.isoformat()}
+  - "next week"  → {next_week.isoformat()}
+  - "in N days"  → today + N days from {today.isoformat()}
+Always convert relative dates to YYYY-MM-DD before calling any tool.
 
-    Handles three categories:
-      1. Success (✅ or action keywords) → keep as-is, add closing prompt
-      2. Validation error (project/issue/user not found) → rewrite as friendly message
-      3. Other content → keep as-is, add closing prompt
-    """
-    result_lower = result.lower() if result else ""
+RULES:
+1. Execute clear write requests directly — do NOT ask unnecessary clarifying questions.
+2. For DELETE requests on a single issue, call delete_redmine_issue. It handles
+   confirmation automatically via a built-in human approval step.
+3. For BULK DELETE requests, call request_bulk_delete_confirmation first.
+4. For ambiguous user names, try the name as given; the tool will surface errors.
+5. Translate natural language status names: "done" → "Resolved", "in review" → "Code Review".
+6. Dates: resolve "tomorrow", "next Friday", "in 3 days" to YYYY-MM-DD before passing.
+7. Be concise — confirm what was done in one or two sentences.
+8. Never expose internal field names, IDs, or API details in your response.
+9. After completing an action, always ask one short forward-looking question.
 
-    # ── Missing project ────────────────────────────────────────────────────────
-    if "project" in result_lower and ("not found" in result_lower or "validation error" in result_lower):
-        # Extract project name and available projects from executor error if present
-        project_name_match = re.search(r"project ['\"]([^'\"]+)['\"]", result, re.IGNORECASE)
-        available_match = re.search(r"available projects?:(.+?)(?:\n|$)", result, re.IGNORECASE | re.DOTALL)
+CRITICAL — STOP AFTER SUCCESS:
+- As soon as a write tool returns a success response (starts with ✅ or 🗑️), STOP.
+  Do not update, verify, or follow up with additional tool calls in the same turn.
 
-        project_name = project_name_match.group(1) if project_name_match else "that project"
-        if available_match:
-            available_raw = available_match.group(1).strip()
-            # Extract just the display names (before the identifiers in parentheses)
-            display_names = re.findall(r"'([^']+)'\s*\(", available_raw)
-            if display_names:
-                if len(display_names) <= 5:
-                    available_str = ", ".join(f'"{n}"' for n in display_names)
-                else:
-                    available_str = ", ".join(
-                        f'"{n}"' for n in display_names[:5]) + f" and {len(display_names)-5} more"
-                friendly = (
-                    f"⚠️ I couldn't find a project called \"{project_name}\". "
-                    f"The available projects are: {available_str}. "
-                    f"Please use one of these names and try again."
-                )
-            else:
-                friendly = (
-                    f"⚠️ I couldn't find a project called \"{project_name}\". "
-                    f"Please check the project name and try again."
-                )
-        else:
-            friendly = (
-                f"⚠️ I couldn't find a project called \"{project_name}\". "
-                f"Please check the project name and try again."
-            )
-        return friendly + "\n\nWhat would you like to do next?"
+CRITICAL — DO NOT RETRY ON ERROR:
+- If a write tool returns an error (starts with ❌), do NOT call the same tool again.
+  Report the error to the user and STOP."""
 
-    # ── Missing issue ──────────────────────────────────────────────────────────
-    if ("issue #" in result_lower or "issue" in result_lower) and (
-        "doesn't exist" in result_lower or "not found" in result_lower or
-        "does not exist" in result_lower
-    ):
-        issue_match = re.search(r"issue #(\d+)", result, re.IGNORECASE)
-        issue_ref = f"issue #{issue_match.group(1)}" if issue_match else "that issue"
-        friendly = (
-            f"⚠️ {issue_ref.capitalize()} doesn't exist in Redmine — "
-            f"please double-check the issue number and try again."
+
+# ── Agent (lazy singleton) ─────────────────────────────────────────────────────
+
+_agent = None
+
+
+def _get_agent():
+    global _agent
+    if _agent is None:
+        _agent = create_agent(
+            model=get_llm(),
+            tools=_AGENT_TOOLS,
+            system_prompt=_build_system_prompt(),
+            name="automation_agent",
+            checkpointer=_checkpointer,
         )
-        return friendly + "\n\nWhat would you like to do next?"
+        logger.info("[AUTO AGENT] Initialized with InMemorySaver checkpointer")
+    return _agent
 
-    # ── Missing user / assignee ────────────────────────────────────────────────
-    if ("user" in result_lower or "assignee" in result_lower or "member" in result_lower) and (
-        "not found" in result_lower or "no member" in result_lower
-    ):
-        user_match = re.search(r"user ['\"]([^'\"]+)['\"]", result, re.IGNORECASE)
-        user_name = user_match.group(1) if user_match else "that user"
-        friendly = (
-            f"⚠️ I couldn't find a team member called \"{user_name}\". "
-            f"Please use the full name as it appears in Redmine (e.g. 'Alice Fullstack', 'Amir Backend')."
+
+# ── Interrupt state detection ──────────────────────────────────────────────────
+
+def _is_graph_interrupted(config: dict) -> bool:
+    """
+    Return True if the agent graph for this thread is currently paused at
+    an interrupt() call (i.e. awaiting user input before it can resume).
+    """
+    try:
+        agent = _get_agent()
+        state = agent.get_state(config)
+        # LangGraph marks an interrupted graph by having pending `next` nodes
+        # and at least one task with a non-empty `interrupts` list.
+        has_next = bool(getattr(state, "next", None))
+        has_interrupts = any(
+            getattr(task, "interrupts", None)
+            for task in getattr(state, "tasks", [])
         )
-        return friendly + "\n\nWhat would you like to do next?"
-
-    # ── Normal result (success or other) ──────────────────────────────────────
-    parts = []
-    if preamble and preamble.strip():
-        parts.append(preamble.strip())
-    if result and result.strip():
-        parts.append(result.strip())
-    parts.append("What would you like to do next?")
-    return "\n\n".join(parts)
+        return has_next and has_interrupts
+    except Exception:
+        return False
 
 
-# ── Main entry point ───────────────────────────────────────────────────────────
+# ── Public entry point ─────────────────────────────────────────────────────────
 
 def run_automation_agent(
     query: str,
-    history: list[dict] = None,
+    history: list[dict] | None = None,
     session_id: str = "default",
-    project_identifier: str = None,
+    project_identifier: str | None = None,
 ) -> str:
+    """
+    Invoke the automation agent with a plain-text query.
+
+    Uses "automation_{session_id}" as the LangGraph thread_id so that
+    interrupt() state persists between turns within the same user session.
+
+    If the previous turn left the graph interrupted (awaiting delete
+    confirmation), this call automatically resumes it via Command(resume=query)
+    instead of starting a fresh invocation — no manual routing required.
+    """
     if history is None:
         history = []
 
-    q_stripped = query.strip()
-    q_lower = q_stripped.lower()
+    q = query.strip()
     start = time.perf_counter()
 
+    # LangGraph config — thread scoped to user session
+    config = {"configurable": {"thread_id": f"automation_{session_id}"}}
+
     with mlflow.start_run(run_name="automation_agent", nested=True):
-
         mlflow.log_param("session_id", session_id)
-        mlflow.log_param("query", q_stripped[:300])
+        mlflow.log_param("query", q[:300])
 
-        # Step 1: Merge history
-        internal = _get_internal_history(session_id)
-        effective_history = _merge_histories(history, internal)
+        agent = _get_agent()
+        reply = ""
 
-        # Step 2: Cancellation
-        if q_lower in ("cancel", "no", "nevermind", "stop", "abort"):
-            if session_id in _pending_confirmations:
-                del _pending_confirmations[session_id]
-                reply = "Action cancelled. Nothing was changed."
-            else:
-                reply = "No pending action to cancel."
-            mlflow.log_param("outcome", "cancelled")
-            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
-            _save_internal_history(session_id, q_stripped, reply)
-            return reply
-
-        # Step 3: Confirmation reply
-        if session_id in _pending_confirmations and q_lower.startswith("yes"):
-            pending_plan = _pending_confirmations.pop(session_id)
-            logger.info(f"[AUTO] session={session_id} executing confirmed plan")
-            result = _executor_instance.execute(pending_plan)
-            log_event("agent_response", agent="automation_agent", user_input=query)
-            reply = _format_execution_result(None, result)
-            mlflow.log_param("outcome", "confirmed_execution")
-            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
-            mlflow.log_metric("response_length", len(reply))
-            _save_internal_history(session_id, q_stripped, reply)
-            return reply
-
-        # Step 4: Plan
         try:
-            raw_plan = _plan(query, effective_history)
-            plan = parse_action_plan(raw_plan)
-        except ValueError as e:
-            logger.error(f"[AUTO] Planning failed: {e}")
-            mlflow.log_param("outcome", "planning_error")
+            if _is_graph_interrupted(config):
+                # The previous turn ended with an interrupt() — resume with
+                # the user's reply. LangGraph will pass `q` back into
+                # interrupt() as its return value inside delete_redmine_issue.
+                logger.info(
+                    f"[AUTO AGENT] Resuming interrupted graph for session={session_id}"
+                )
+                result = agent.invoke(Command(resume=q), config=config)
+            else:
+                # Fresh invocation — build message list with recent history.
+                messages = []
+                for turn in history[-8:]:
+                    role = turn.get("role", "user")
+                    content = turn.get("content", "")
+                    messages.append(
+                        HumanMessage(content=content) if role == "user"
+                        else AIMessage(content=content)
+                    )
+                messages.append(HumanMessage(content=q))
+
+                result = agent.invoke({"messages": messages}, config=config)
+
+            # If this invocation hit an interrupt, surface the confirmation
+            # prompt directly to the user (the LangGraph way).
+            if hasattr(result, "interrupts") and result.interrupts:
+                interrupt_value = result.interrupts[0].value
+                reply = interrupt_value.get(
+                    "message",
+                    "⚠️ Confirmation required — please reply yes or no.",
+                )
+                mlflow.log_param("outcome", "interrupted_awaiting_confirmation")
+            else:
+                all_messages = (
+                    result.get("messages", []) if isinstance(result, dict) else []
+                )
+                reply = all_messages[-1].content if all_messages else ""
+                mlflow.log_param("outcome", "executed")
+
+        except Exception as e:
+            logger.error(f"[AUTO AGENT] Invocation failed: {e}")
+            log_event("agent_error", agent="automation_agent", error=str(e), success=False)
+            mlflow.log_param("outcome", "error")
             mlflow.log_param("error", str(e)[:300])
-            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
             reply = (
-                "I couldn't process that request right now — the planning service returned an error.\n"
-                "Please try again in a moment."
+                "⚠️ I encountered an error processing your request. "
+                "Please check that the issue, project, or user exists in Redmine and try again."
             )
-            _save_internal_history(session_id, q_stripped, reply)
-            return reply
 
-        action_types = [a.type for a in plan.actions] if plan.actions else []
-        mlflow.log_param("action_types", str(action_types))
-        mlflow.log_param("action_count", len(action_types))
-        mlflow.log_param("requires_confirmation", str(plan.requires_confirmation))
-
-        # Step 5: Confirmation gate
-        if plan.requires_confirmation and plan.actions:
-            _pending_confirmations[session_id] = plan
-            logger.info(f"[AUTO] session={session_id} awaiting confirmation")
-            reply = plan.confirmation_prompt
-            mlflow.log_param("outcome", "awaiting_confirmation")
-            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
-            _save_internal_history(session_id, q_stripped, reply)
-            return reply
-
-        # Step 6: Pseudo-actions
-        if plan.actions and plan.actions[0].type == "needs_clarification":
-            reply = plan.actions[0].params.get("question", "Could you clarify?")
-            mlflow.log_param("outcome", "needs_clarification")
-            mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
-            _save_internal_history(session_id, q_stripped, reply)
-            return reply
-
-        # Step 7: Execute
-        result = _executor_instance.execute(plan)
-        log_event("agent_response", agent="automation_agent", user_input=query)
-
-        # Use the improved formatter that handles not-found errors gracefully
-        reply = _format_execution_result(plan.preamble, result)
-
-        mlflow.log_param("outcome", "executed")
-        mlflow.log_metric("latency_ms", (time.perf_counter() - start) * 1000)
+        total_ms = (time.perf_counter() - start) * 1000
+        mlflow.log_metric("latency_ms", total_ms)
         mlflow.log_metric("response_length", len(reply))
         mlflow.log_text(reply, "agent_output.txt")
 
-        _save_internal_history(session_id, q_stripped, reply)
+        log_event(
+            "agent_response",
+            agent="automation_agent",
+            user_input=query,
+            latency_ms=total_ms,
+        )
+        logger.info(f"[AUTO AGENT] {total_ms:.0f}ms | session={session_id}")
+
         return reply

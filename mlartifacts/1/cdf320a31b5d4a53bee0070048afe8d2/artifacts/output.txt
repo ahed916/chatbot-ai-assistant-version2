@@ -1,0 +1,3 @@
+Are you sure you want to delete issue #69? This action cannot be undone.
+
+Is there anything else you'd like me to help with regarding your Redmine projects?

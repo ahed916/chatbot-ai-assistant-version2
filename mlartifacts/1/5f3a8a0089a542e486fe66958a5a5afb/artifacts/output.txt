@@ -1,0 +1,5 @@
+⚠️ **Confirmation required** — you are about to permanently delete issue #71. This cannot be undone.
+
+Reply **"Yes, delete #71"** to confirm, or **"cancel"** to abort.
+
+Is there anything else you’d like me to help with regarding your Redmine projects?

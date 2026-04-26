@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Search, X } from "lucide-react";
+import { Plus, Search, X, Trash2, LogOut } from "lucide-react";
 import { Conversation } from "@/types/chat";
 import { ChatItem } from "./ChatItem";
 
@@ -8,6 +8,8 @@ interface AppSidebarProps {
   activeId: string | null;
   onSelect: (id: string) => void;
   onNewChat: () => void;
+  onDelete?: (id: string) => void;
+  onLogout?: () => void;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -17,6 +19,8 @@ export function AppSidebar({
   activeId,
   onSelect,
   onNewChat,
+  onDelete,
+  onLogout,
   isOpen,
   onClose,
 }: AppSidebarProps) {
@@ -32,7 +36,6 @@ export function AppSidebar({
 
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -49,13 +52,9 @@ export function AppSidebar({
         <div className="p-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">
-                R
-              </span>
+              <span className="text-primary-foreground font-bold text-sm">R</span>
             </div>
-            <span className="text-sidebar-fg font-semibold text-lg">
-              RedMind
-            </span>
+            <span className="text-sidebar-fg font-semibold text-lg">RedMind</span>
           </div>
           <button
             onClick={onClose}
@@ -70,9 +69,8 @@ export function AppSidebar({
           <button
             onClick={onNewChat}
             disabled={
-              // disable when active conversation is already empty
-              conversations.find((c) => c.id === activeId)?.messages.length ===
-                0 && activeId !== null
+              conversations.find((c) => c.id === activeId)?.messages.length === 0 &&
+              activeId !== null
             }
             className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-sidebar-hover text-sidebar-fg text-sm font-medium hover:bg-sidebar-hover transition-colors"
           >
@@ -102,18 +100,36 @@ export function AppSidebar({
             </p>
           ) : (
             filtered.map((conv) => (
-              <ChatItem
-                key={conv.id}
-                conversation={conv}
-                isActive={conv.id === activeId}
-                onClick={() => onSelect(conv.id)}
-              />
+              <div key={conv.id} className="group relative">
+                <ChatItem
+                  conversation={conv}
+                  isActive={conv.id === activeId}
+                  onClick={() => onSelect(conv.id)}
+                />
+                {onDelete && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(conv.id); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-sidebar-muted hover:text-red-400 transition-all"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             ))
           )}
         </div>
 
         {/* Footer */}
         <div className="p-3 border-t border-sidebar-hover">
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sidebar-muted hover:text-sidebar-fg hover:bg-sidebar-hover transition-colors text-sm mb-2"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          )}
           <p className="text-[10px] text-sidebar-muted text-center">
             RedMind × Redmine AI Assistant
           </p>

@@ -1,41 +1,43 @@
 """
 main.py — RedMind FastAPI Application
 
-Key improvements over previous version:
-  - Pre-warming: loads slow-changing Redmine data into Redis on startup
-  - Real token streaming: streams directly from the agent (not fake word-splitting)
-  - Clean scheduler: uses config.py values, not hardcoded cron strings
-  - All config from config.py — no hardcoded values here
-  - Proper lifespan handler (replaces deprecated on_event)
-  - Audit logging for every request
-  - Conversation history: session_id flows from HTTP header → supervisor → agent
-    so every agent can resolve follow-up replies (clarifications, names, etc.)
+Key fixes vs previous version:
+  1. ContextVar instead of threading.local() → key survives run_in_executor()
+  2. Per-PM risk scanning — each PM sees risks for their own projects only
+  3. /api/proactive-risks reads from per-PM Redis cache (proactive:risk:{user_id})
+  4. Slack alerting is per-PM (each PM's webhook or a shared channel with @mention)
 """
-from supervisor import run_supervisor
-from conversation_manager import history_store
-from config import (
-    REDIS_DB, REDIS_HOST, REDIS_PORT,
-    RISK_SCAN_HOURS, RISK_SCAN_MINUTES,
-)
-from audit import log_event
 import asyncio
 import json
 import logging
 import time
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
-import mlflow_config
-from supabase import create_client
+from dotenv import load_dotenv
+
+from redmine import prewarm
+load_dotenv()
 
 import redis as redis_lib
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
-import os
-from dotenv import load_dotenv
-load_dotenv()
+
+from audit import log_event
+from auth import supabase_admin
+from routers import chat, admin, profile, conversations
+from config import (
+    REDIS_DB, REDIS_HOST, REDIS_PORT,
+    RISK_SCAN_HOURS, RISK_SCAN_MINUTES,
+)
+from conversation_manager import history_store
+from dependencies import require_project_manager, CurrentUser
+from scheduler import scheduled_risk_check_for_all_pms
+from supervisor import run_supervisor
+from user_context import get_user_redmine_key, set_background_context
+import mlflow_config
 
 
 logging.basicConfig(
@@ -47,44 +49,14 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
-# ── Scheduler job ─────────────────────────────────────────────────────────────
-
-
-async def scheduled_risk_check():
-    from agents.risk_agent import proactive_risk_check
-    try:
-        logger.info("[SCHEDULER] Starting proactive risk scan...")
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, proactive_risk_check)
-        r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
-        r.setex("proactive:risk:latest", 86400, json.dumps(result))
-        logger.info(
-            "[SCHEDULER] Risk scan complete — critical=%d slack=%s health=%s",
-            result.get("critical_count", 0),
-            result.get("slack_sent", False),
-            result.get("overall_health", "Unknown"),
-        )
-        log_event(
-            "scheduled_risk_check",
-            agent="risk_agent",
-            extra={
-                "critical_count": result.get("critical_count", 0),
-                "overall_health": result.get("overall_health", "Unknown"),
-            },
-        )
-    except Exception as e:
-        logger.error("[SCHEDULER] Risk scan failed: %s", e)
-        log_event("scheduler_error", agent="risk_agent", error=str(e), success=False)
-
-
 # ── App lifespan ──────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    set_background_context()
     logger.info("[STARTUP] RedMind starting up...")
 
     try:
-        from redmine import prewarm
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, prewarm)
     except Exception as e:
@@ -93,24 +65,28 @@ async def lifespan(app: FastAPI):
     minutes = int(RISK_SCAN_MINUTES)
     if minutes > 0:
         scheduler.add_job(
-            scheduled_risk_check, "interval", minutes=minutes,
-            id="proactive_risk_check", replace_existing=True,
+            scheduled_risk_check_for_all_pms,
+            "interval",
+            minutes=minutes,
+            id="proactive_risk_check",
+            replace_existing=True,
         )
         logger.info(f"[STARTUP] Risk scan: every {minutes} minutes (dev mode)")
     else:
         hours = int(RISK_SCAN_HOURS)
         scheduler.add_job(
-            scheduled_risk_check, "interval", hours=hours,
-            id="proactive_risk_check", replace_existing=True,
+            scheduled_risk_check_for_all_pms,
+            "interval",
+            hours=hours,
+            id="proactive_risk_check",
+            replace_existing=True,
         )
         logger.info(f"[STARTUP] Risk scan: every {hours} hours")
 
     scheduler.start()
 
-    # ✅ Run the first scan immediately so Redis is populated before
-    # the frontend polls — without this the bell stays empty for 2 hours.
-    logger.info("[STARTUP] Running initial risk scan...")
-    asyncio.create_task(scheduled_risk_check())
+    logger.info("[STARTUP] Running initial risk scan for all PMs...")
+    asyncio.create_task(scheduled_risk_check_for_all_pms())
 
     logger.info("[STARTUP] Ready.")
     yield
@@ -121,24 +97,32 @@ async def lifespan(app: FastAPI):
 
 # ── FastAPI App ───────────────────────────────────────────────────────────────
 
-app = FastAPI(title="RedMind Chat API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="RedMind Chat API", version="2.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8080"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:8080",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(admin.router)
+app.include_router(chat.router)
+app.include_router(profile.router)
+app.include_router(conversations.router)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     messages: List[Dict[str, str]] = Field(...)
-    # Optional stable session ID from the frontend (e.g. UUID in localStorage).
-    # If omitted, the X-Session-Id header is used instead.
     session_id: Optional[str] = Field(default=None)
+    conversation_id: Optional[str] = Field(default=None)
 
 
 class ChatResponse(BaseModel):
@@ -147,81 +131,90 @@ class ChatResponse(BaseModel):
     latency_ms: float
 
 
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]  # service_role key
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _resolve_session_id(user: CurrentUser) -> str:
+    return user.id
 
 
-class CreateUserRequest(BaseModel):
-    email: str
-    password: str
+async def _save_message(
+    user_id: str,
+    conversation_id: str,
+    title: str,
+    user_input: str,
+    reply: str,
+):
+    def _sync():
+        try:
+            existing = supabase_admin.table("conversations") \
+                .select("id") \
+                .eq("user_id", user_id) \
+                .eq("session_id", conversation_id) \
+                .limit(1) \
+                .execute()
 
+            if existing.data:
+                db_conv_id = existing.data[0]["id"]
+                supabase_admin.table("conversations") \
+                    .update({"updated_at": "now()"}) \
+                    .eq("id", db_conv_id) \
+                    .execute()
+            else:
+                new_conv = supabase_admin.table("conversations") \
+                    .insert({
+                        "user_id": user_id,
+                        "session_id": conversation_id,
+                        "title": title[:60],
+                    }) \
+                    .execute()
+                db_conv_id = new_conv.data[0]["id"]
 
-@app.post("/admin/create-user")
-async def create_user(req: CreateUserRequest, x_session_id: Optional[str] = Header(default=None)):
-    # TODO: verify the caller is an admin by checking their JWT
-    admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    res = admin_client.auth.admin.create_user({
-        "email": req.email,
-        "password": req.password,
-        "email_confirm": True,
-        "user_metadata": {"role": "project_manager"},
-    })
-    return {"id": res.user.id, "email": res.user.email}
-# ── Session ID helper ─────────────────────────────────────────────────────────
+            supabase_admin.table("messages").insert([
+                {"conversation_id": db_conv_id, "role": "user", "content": user_input},
+                {"conversation_id": db_conv_id, "role": "assistant", "content": reply},
+            ]).execute()
 
+        except Exception as e:
+            logger.error(f"[STORAGE] Failed to save message: {e}")
 
-def _resolve_session_id(req: ChatRequest, x_session_id: Optional[str]) -> str:
-    """
-    Pick a session ID with the following priority:
-      1. X-Session-Id header  (preferred — set by the frontend on every request)
-      2. session_id body field
-      3. Hash of the first user message (per-tab fallback, not persistent)
-
-    The frontend should send a stable UUID stored in localStorage so that history
-    survives page refreshes. Without it, history still works within a session
-    but resets on reload.
-    """
-    if x_session_id:
-        return x_session_id
-    if req.session_id:
-        return req.session_id
-    import hashlib
-    for msg in req.messages:
-        if msg.get("role") == "user":
-            return "anon-" + hashlib.md5(msg["content"].encode()).hexdigest()[:12]
-    return "anon-default"
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _sync)
 
 
 # ── Chat endpoints ────────────────────────────────────────────────────────────
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(
+async def chat_endpoint(
     req: ChatRequest,
     x_session_id: Optional[str] = Header(default=None),
+    user: CurrentUser = Depends(require_project_manager),
 ):
     start = time.perf_counter()
     try:
-        session_id = _resolve_session_id(req, x_session_id)
+        # This sets the ContextVar — will propagate into run_in_executor threads
+        get_user_redmine_key(user)
+        session_id = _resolve_session_id(user)
         user_input = req.messages[-1]["content"]
-
-        # Fetch persisted history for this session.
         history = history_store.get(session_id)
 
         loop = asyncio.get_event_loop()
-        # Pass both history AND session_id to the supervisor.
-        # session_id lets each agent maintain its own internal history store
-        # as a fallback, independently of whether the supervisor forwards history.
         reply = await loop.run_in_executor(
             None, lambda: run_supervisor(user_input, history, session_id)
         )
 
-        # Persist this turn so the next request has full context.
         history_store.append(session_id, user_msg=user_input, assistant_msg=reply)
+        title = next(
+            (m["content"] for m in req.messages if m.get("role") == "user"),
+            user_input,
+        )
+        await _save_message(user.id, session_id, title, user_input, reply)
 
         latency_ms = (time.perf_counter() - start) * 1000
-        logger.info(f"[/chat] session={session_id} {latency_ms:.0f}ms")
+        logger.info(f"[/chat] user={user.id} {latency_ms:.0f}ms")
         return ChatResponse(reply=reply, model="redmind-v2", latency_ms=round(latency_ms, 2))
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[/chat ERROR] {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -231,30 +224,32 @@ async def chat(
 async def chat_stream(
     req: ChatRequest,
     x_session_id: Optional[str] = Header(default=None),
+    user: CurrentUser = Depends(require_project_manager),
 ):
-    """
-    Server-Sent Events stream.
-    Runs the supervisor fully then streams word-by-word for a natural feel.
-    """
-    # Resolve session and history BEFORE entering the generator.
-    session_id = _resolve_session_id(req, x_session_id)
+    # Set ContextVar BEFORE entering the async generator — it propagates from here
+    get_user_redmine_key(user)
+
+    conversation_id = req.conversation_id or _resolve_session_id(user)
     user_input = req.messages[-1]["content"]
-    history = history_store.get(session_id)
+    history = history_store.get(conversation_id)
+    title = next(
+        (m["content"] for m in req.messages if m.get("role") == "user"),
+        user_input,
+    )
 
     async def generate():
         start = time.perf_counter()
         try:
             loop = asyncio.get_event_loop()
             reply = await loop.run_in_executor(
-                None, lambda: run_supervisor(user_input, history, session_id)
+                None, lambda: run_supervisor(user_input, history, conversation_id)
             )
-
-            # Save the turn now that we have the full reply.
-            history_store.append(session_id, user_msg=user_input, assistant_msg=reply)
+            history_store.append(conversation_id, user_msg=user_input, assistant_msg=reply)
+            await _save_message(user.id, conversation_id, title, user_input, reply)
 
             latency_ms = (time.perf_counter() - start) * 1000
             logger.info(
-                f"[/chat/stream] session={session_id} done in {latency_ms:.0f}ms, streaming..."
+                f"[/chat/stream] user={user.id} conv={conversation_id} done in {latency_ms:.0f}ms"
             )
 
             words = reply.split(" ")
@@ -265,8 +260,11 @@ async def chat_stream(
 
             yield "data: [DONE]\n\n"
 
+        except HTTPException as e:
+            logger.error(f"[/chat/stream HTTP ERROR] user={user.id} {e.detail}")
+            yield f"data: {json.dumps({'error': e.detail, 'status': e.status_code})}\n\n"
         except Exception as e:
-            logger.error(f"[/chat/stream ERROR] session={session_id} {e}")
+            logger.error(f"[/chat/stream ERROR] user={user.id} {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(
@@ -280,34 +278,40 @@ async def chat_stream(
     )
 
 
-# ── Session management ────────────────────────────────────────────────────────
-
 @app.delete("/chat/history")
-async def clear_history(x_session_id: Optional[str] = Header(default=None)):
-    """
-    Clear conversation history for the current session.
-    Call this when the user starts a new conversation.
-    """
-    if not x_session_id:
-        raise HTTPException(status_code=400, detail="X-Session-Id header is required.")
-    history_store.clear(x_session_id)
-    logger.info(f"[/chat/history] Cleared session={x_session_id}")
-    return {"cleared": True, "session_id": x_session_id}
+async def clear_history(
+    x_session_id: Optional[str] = Header(default=None),
+    user: CurrentUser = Depends(require_project_manager),
+):
+    session_id = _resolve_session_id(user)
+    history_store.clear(session_id)
+    logger.info(f"[/chat/history] Cleared session={session_id}")
+    return {"cleared": True, "session_id": session_id}
 
 
-# ── Proactive risks endpoint ──────────────────────────────────────────────────
+# ── Proactive risks endpoint — now per-user ───────────────────────────────────
 
 @app.get("/api/proactive-risks")
-async def get_proactive_risks(project_id: str = ""):
+async def get_proactive_risks(
+    project_id: str = "",
+    user: CurrentUser = Depends(require_project_manager),
+):
+    """
+    Returns the latest risk scan result for THIS user only.
+    Redis key: proactive:risk:{user.id}
+    
+    If project_id is passed, runs a live scan for that project instead.
+    """
     def _should_alert(critical_count: int, overall_health: str) -> bool:
         return critical_count > 0 or overall_health not in ["Healthy", "Unknown"]
 
     if project_id:
+        get_user_redmine_key(user)
         from agents.risk_agent import proactive_risk_check
         try:
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
-                None, lambda: proactive_risk_check(project_id)
+                None, lambda: proactive_risk_check(project_id=project_id)
             )
             return {
                 "has_alert": _should_alert(
@@ -323,9 +327,10 @@ async def get_proactive_risks(project_id: str = ""):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+    # Read from per-user Redis cache
     try:
         r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
-        cached = r.get("proactive:risk:latest")
+        cached = r.get(f"proactive:risk:{user.id}")   # ← per-user key
         if cached:
             data = json.loads(cached)
             return {
@@ -353,10 +358,11 @@ async def get_proactive_risks(project_id: str = ""):
     }
 
 
-# ── Stats endpoint ────────────────────────────────────────────────────────────
+# ── Stats, Metrics, Health, Debug — unchanged ─────────────────────────────────
 
 @app.get("/stats")
-async def stats():
+async def stats(user: CurrentUser = Depends(require_project_manager)):
+    get_user_redmine_key(user)
     import redmine as rm
     from datetime import date
     try:
@@ -391,12 +397,12 @@ async def stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Metrics endpoint ──────────────────────────────────────────────────────────
-
 @app.get("/metrics")
-async def get_metrics(source: str = "redis"):
+async def get_metrics(
+    source: str = "redis",
+    user: CurrentUser = Depends(require_project_manager),
+):
     from metrics import get_live_metrics, get_metrics_from_audit_log
-
     if source == "redis":
         return {"source": "redis_live_counters", "metrics": get_live_metrics()}
     elif source == "log":
@@ -405,13 +411,10 @@ async def get_metrics(source: str = "redis"):
         return {
             "redis_live": get_live_metrics(),
             "audit_log": get_metrics_from_audit_log(),
-            "note": "Compare these two sources to verify Redis counters match log analysis",
         }
     else:
         raise HTTPException(status_code=400, detail="source must be 'redis', 'log', or 'both'")
 
-
-# ── Health check ──────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
@@ -435,13 +438,13 @@ async def health():
 
 
 @app.get("/debug/risk")
-async def debug_risk():
-    """Temporary endpoint to inspect the latest risk scan result in Redis."""
+async def debug_risk(user: CurrentUser = Depends(require_project_manager)):
+    """Inspect the latest risk scan result for the calling user."""
     try:
         r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
-        cached = r.get("proactive:risk:latest")
+        cached = r.get(f"proactive:risk:{user.id}")
         if not cached:
-            return {"status": "empty", "message": "No risk scan result in Redis yet."}
+            return {"status": "empty", "message": "No risk scan result yet for your account."}
         return {"status": "found", "data": json.loads(cached)}
     except Exception as e:
         return {"status": "error", "message": str(e)}

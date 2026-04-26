@@ -1,0 +1,3 @@
+I can update the due date for issue #65, but the Redmine update tool I have access to doesn’t allow modifying the start date—only the due date, status, assignee, priority, or adding notes.
+
+Would you like me to go ahead and set the due date to tomorrow (leaving the start date unchanged), or is there another way I can help?

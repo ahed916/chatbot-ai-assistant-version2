@@ -1,0 +1,5 @@
+I tried to create the issue, but Redmine returned a validation error: **Due date must be greater than start date**.  
+
+The due date you provided (`2025-08-28`) is in the past relative to today’s date (`2026-04-19`), and Redmine requires the due date to be later than the issue’s start date (which defaults to today unless otherwise set).
+
+Please provide a due date that is **after today** (e.g., `2026-05-01` or any future date), and I’ll create the issue for you.

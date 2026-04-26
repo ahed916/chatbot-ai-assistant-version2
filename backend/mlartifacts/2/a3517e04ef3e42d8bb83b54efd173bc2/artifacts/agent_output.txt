@@ -1,0 +1,12 @@
+I've created the issue in the **e learning platform** project with the following details:
+
+- **Subject:** fix problem  
+- **Tracker:** Task  
+- **Priority:** Low (the closest available option to "very low"; Redmine offers Low, Normal, High, Urgent, Immediate)  
+- **Assignee:** Unassigned  
+- **Due date:** Not set  
+- **Description:** (left empty as you didn’t provide one)
+
+✅ Issue **#61** was created successfully.
+
+Let me know if you’d like to adjust any of these fields (e.g., add a description, assign someone, set a due date, or change the priority to a different level).

@@ -1,0 +1,1 @@
+Are you sure you want to permanently delete issue #50? This action cannot be undone. Please reply **yes** to confirm or **no** to cancel. Shall I go ahead?

@@ -1,0 +1,3 @@
+I couldn’t change issue #30 to “In Progress” because its current status is **Closed** and Redmine’s workflow doesn’t allow moving directly from Closed to In Progress. You would need to reopen the issue first (or choose an allowed transition) before setting it to In Progress.
+
+Would you like me to reopen issue #30 for you, or is there another action you’d like to take?

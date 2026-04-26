@@ -4,6 +4,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Design system tokens. All colors MUST be HSL.
+  Merged from both branches — includes dark mode, chat tokens, and sidebar legacy tokens.
+*/
 @layer base {
   :root {
     --background: 0 0% 97%;
@@ -30,32 +34,73 @@
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
+    --border: 0 0% 88%;
+    --input: 0 0% 88%;
     --ring: 0 72% 51%;
 
     --radius: 0.75rem;
 
-    /* RedMind custom tokens */
-    --sidebar-bg: 0 0% 8%;
+    /* Sidebar (new standard tokens) */
+    --sidebar-background: 0 0% 10%;
+    --sidebar-foreground: 0 0% 85%;
+    --sidebar-primary: 0 72% 51%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 16%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 0 0% 18%;
+    --sidebar-ring: 0 72% 51%;
+
+    /* Sidebar (legacy aliases — keep for backward compat) */
+    --sidebar-bg: 0 0% 10%;
     --sidebar-fg: 0 0% 85%;
     --sidebar-hover: 0 0% 14%;
     --sidebar-active: 0 0% 18%;
     --sidebar-muted: 0 0% 50%;
 
+    /* Chat bubble tokens */
     --chat-user: 0 72% 51%;
     --chat-user-fg: 0 0% 100%;
     --chat-assistant: 0 0% 100%;
     --chat-assistant-fg: 0 0% 10%;
+  }
 
-    --sidebar-background: 0 0% 8%;
-    --sidebar-foreground: 0 0% 85%;
-    --sidebar-primary: 0 72% 51%;
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 14%;
-    --sidebar-accent-foreground: 0 0% 85%;
-    --sidebar-border: 0 0% 16%;
-    --sidebar-ring: 0 72% 51%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
 
@@ -70,27 +115,13 @@
 }
 
 /* Scrollbar styling */
-.chat-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-.chat-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.chat-scroll::-webkit-scrollbar-thumb {
-  background: hsl(0 0% 80%);
-  border-radius: 3px;
-}
+.chat-scroll::-webkit-scrollbar { width: 6px; }
+.chat-scroll::-webkit-scrollbar-track { background: transparent; }
+.chat-scroll::-webkit-scrollbar-thumb { background: hsl(0 0% 80%); border-radius: 3px; }
 
-.sidebar-scroll::-webkit-scrollbar {
-  width: 4px;
-}
-.sidebar-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.sidebar-scroll::-webkit-scrollbar-thumb {
-  background: hsl(0 0% 25%);
-  border-radius: 2px;
-}
+.sidebar-scroll::-webkit-scrollbar { width: 4px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: hsl(0 0% 25%); border-radius: 2px; }
 
 /* Typing indicator */
 @keyframes typing-dot {
@@ -102,27 +133,11 @@
 .typing-dot:nth-child(3) { animation: typing-dot 1.4s infinite 0.4s; }
 
 /* Markdown prose overrides */
-.prose-chat pre {
-  @apply bg-muted rounded-lg p-4 overflow-x-auto text-sm my-2;
-}
-.prose-chat code {
-  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono;
-}
-.prose-chat pre code {
-  @apply bg-transparent p-0;
-}
-.prose-chat table {
-  @apply w-full border-collapse my-2;
-}
-.prose-chat th, .prose-chat td {
-  @apply border px-3 py-2 text-sm text-left;
-}
-.prose-chat th {
-  @apply bg-muted font-semibold;
-}
-.prose-chat ul, .prose-chat ol {
-  @apply pl-5 my-2;
-}
-.prose-chat p {
-  @apply my-1;
-}
+.prose-chat pre { @apply bg-muted rounded-lg p-4 overflow-x-auto text-sm my-2; }
+.prose-chat code { @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono; }
+.prose-chat pre code { @apply bg-transparent p-0; }
+.prose-chat table { @apply w-full border-collapse my-2; }
+.prose-chat th, .prose-chat td { @apply border px-3 py-2 text-sm text-left; }
+.prose-chat th { @apply bg-muted font-semibold; }
+.prose-chat ul, .prose-chat ol { @apply pl-5 my-2; }
+.prose-chat p { @apply my-1; }

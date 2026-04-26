@@ -1,0 +1,5 @@
+I need the exact confirmation phrase to proceed. Please reply with:
+
+**Yes, delete #71**
+
+Once I receive that, I’ll delete the issue.

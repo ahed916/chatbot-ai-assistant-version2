@@ -16,6 +16,7 @@ export interface ChatMessage {
 
 export interface Conversation {
   id: string;
+  dbId?: string;        // database UUID, may differ from local session ID
   title: string;
   messages: ChatMessage[];
   createdAt: Date;
@@ -23,7 +24,6 @@ export interface Conversation {
   isProactive?: boolean;
 }
 
-// ── Added: required by useChatState for risk alert panel ─────────────────────
 export interface RiskAlert {
   id: string;
   message: string;
@@ -40,13 +40,11 @@ export interface KPI {
   label: string;
   value: number | string;
   trend?: "up" | "down" | "stable";
-  // Added "good" — the agent returns this value, was missing from union
   status?: "critical" | "warning" | "good" | "ok" | "info";
   context?: string;
 }
 
 export interface ChartConfig {
-  // Added donut / area / stackedBar — agent may return these types
   type: "bar" | "pie" | "line" | "donut" | "area" | "stackedBar";
   title: string;
   data: Record<string, unknown>[];
@@ -54,25 +52,21 @@ export interface ChartConfig {
   yKey?: string;
   nameKey?: string;
   valueKey?: string;
-  colors?: string[];   // Added — agent sends hex colors per chart
+  colors?: string[];
   insight?: string;
 }
 
 export interface DashboardPayload {
-  // Added "no_data" — returned when Redmine has 0 issues
   type: "dashboard" | "quick_stat" | "no_data" | "clarification";
   title?: string;
   summary?: string;
   generated_at?: string;
   kpis?: KPI[];
   charts?: ChartConfig[];
-  // Added: quick_stat fields — returned for single-number answers
   label?: string;
   value?: string | number;
   context?: string;
-  // Added: no_data explanation text
   message?: string;
-  // legacy simple shape (keep for backwards compat)
   chartType?: string;
   data?: Record<string, unknown>[];
 }

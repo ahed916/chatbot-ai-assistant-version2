@@ -10,9 +10,9 @@ interface ChatWindowProps {
   isTyping: boolean;
   onSend: (text: string) => void;
   onToggleSidebar: () => void;
-  riskAlerts: RiskAlert[];
-  onOpenAlert: (id: string) => void;
-  onDismissAlert: (id: string) => void;
+  riskAlerts?: RiskAlert[];
+  onOpenAlert?: (id: string) => void;
+  onDismissAlert?: (id: string) => void;
 }
 
 export function ChatWindow({
@@ -20,13 +20,12 @@ export function ChatWindow({
   isTyping,
   onSend,
   onToggleSidebar,
-  riskAlerts,
-  onOpenAlert,
-  onDismissAlert,
+  riskAlerts = [],
+  onOpenAlert = () => {},
+  onDismissAlert = () => {},
 }: ChatWindowProps) {
   return (
     <div className="flex-1 flex flex-col min-w-0 h-screen">
-      {/* Header */}
       <header className="h-14 border-b bg-background flex items-center px-4 gap-3 shrink-0">
         <button
           onClick={onToggleSidebar}
@@ -44,7 +43,6 @@ export function ChatWindow({
           </h1>
         </div>
 
-        {/* Bell lives here — right side of header */}
         <RiskAlertBell
           alerts={riskAlerts}
           onOpen={onOpenAlert}

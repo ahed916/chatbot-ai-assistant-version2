@@ -1,0 +1,9 @@
+Here are the current issues with their priorities and assignees:
+
+**E‑Learning Platform**: #58 High – Alice Fullstack; #55 Normal – Unassigned; #52 Normal – Unassigned; #49 Normal – Unassigned; #46 Normal – Unassigned; #37 High – Alice Fullstack; #36 Normal – Alice Fullstack; #34 Normal – Unassigned; #30 Urgent – Amir Backend; #29 Low – Alice Fullstack; #28 High – Alice Fullstack; #27 High – Abir Mobile; #26 Normal – Ahed Manager; #25 Very Low – Amir Backend; #24 Low – Amira Frontend; #23 Normal – Alice Fullstack; #22 High – Abir Mobile; #21 High – Amir Backend; #20 Low – Amira Frontend; #19 Low – Amir Backend; #18 Normal – Alice Fullstack; #17 Normal – Abir Mobile; #16 High – Abir Mobile; #15 Low – Amira Frontend; #14 Normal – Amir Backend; #13 High – Alice Fullstack; #12 Normal – Amir Backend; #11 High – Abir Mobile; #10 High – Amira Frontend; #9 Urgent – Alice Fullstack; #8 Urgent – Amira Frontend; #7 Urgent – Mounir Qa; #6 Normal – Alice Fullstack; #4 High – Amir Backend.
+
+**Mobile App**: #60 High – Unassigned; #59 High – Unassigned; #54 High – Unassigned; #51 High – Unassigned; #48 High – Unassigned; #45 High – Unassigned; #44 High – Unassigned; #43 High – Unassigned (Closed); #42 High – Unassigned; #41 High – Unassigned; #40 High – Alice Fullstack; #39 High – Unassigned; #38 High – Unassigned; #35 Normal – Amir Backend.
+
+**web Platform**: #57 High – Unassigned; #56 Normal – Unassigned; #53 Normal – Unassigned; #50 Normal – Unassigned (closed); #47 Normal – Unassigned; #33 Normal – Abir Mobile; #32 Normal – Alice Fullstack; #31 High – Unassigned.
+
+Anything you'd like me to update or reassign?

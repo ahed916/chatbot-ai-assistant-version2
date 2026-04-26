@@ -1,0 +1,12 @@
+Here are the projects in Redmine:
+
+- e commerce website (ID: 9)
+- HR Management Platform (ID: 6)
+- Mobile App (ID: 10)
+- project test (ID: 11)
+- project test 2 (ID: 12)
+- test (ID: 7)
+- Test Automation Project (ID: 8)
+- web Platform (ID: 4)
+
+Would you like to see the open issues or workload for any of these projects?

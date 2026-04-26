@@ -1,0 +1,6 @@
+Assign issue 60 to bob
+
+⚠️ I couldn't find a team member named 'bob'.
+Please check the spelling or confirm they've been added to a project.
+
+What would you like to do next?

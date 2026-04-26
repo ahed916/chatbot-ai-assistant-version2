@@ -1,0 +1,7 @@
+I’m unable to change the start date for an existing issue with the tools I have—Redmine’s update function only lets me modify the due date, status, assignee, priority, or add notes. Because the due date must be later than the start date, the update fails until the start date is set to today or earlier.
+
+Would you like me to:
+1. Create a new “dark mode” feature issue with today’s start date and tomorrow’s due date, or  
+2. Leave issue #65 as‑is and let you adjust the start date directly in Redmine?
+
+Let me know how you’d like to proceed.

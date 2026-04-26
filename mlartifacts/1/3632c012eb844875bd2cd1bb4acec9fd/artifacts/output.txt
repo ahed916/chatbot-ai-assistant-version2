@@ -1,0 +1,3 @@
+The dark mode feature has been created as issue #71, assigned to Alice with urgent priority and due tomorrow in the E‑Learning Platform project.
+
+Would you like to add any further details or comments to this issue?

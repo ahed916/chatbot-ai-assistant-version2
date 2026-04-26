@@ -1,0 +1,8 @@
+I’d be happy to create a new issue for you. To get started, could you please let me know:
+
+1. Which project should the issue belong to?  
+2. What type of issue (e.g., Bug, Feature, Task) would you like to create?  
+3. A brief subject or title for the issue.  
+4. Any additional details you’d like to include (description, assignee, priority, due date, etc.).
+
+Once I have that information, I’ll create the issue right away.

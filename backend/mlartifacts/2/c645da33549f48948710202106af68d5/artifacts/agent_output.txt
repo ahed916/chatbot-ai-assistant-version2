@@ -1,0 +1,10 @@
+✅ Issue #62 created successfully in the **E-Learning Platform** project.
+
+**Details:**
+- **Subject:** fix login problem
+- **Tracker:** Feature
+- **Due Date:** 2026-04-23
+- **Assignee:** Unassigned (default)
+- **Priority:** Normal (default)
+
+The issue is now ready for further action.

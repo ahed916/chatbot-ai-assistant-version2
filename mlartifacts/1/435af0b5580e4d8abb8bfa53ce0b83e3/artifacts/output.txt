@@ -1,0 +1,12 @@
+Here are the current projects in Redmine:
+
+- e commerce website  
+- HR Management Platform  
+- Mobile App  
+- project test  
+- project test 2  
+- test  
+- Test Automation Project  
+- web Platform  
+
+Would you like more details on any of these projects, such as open issues or team workload?

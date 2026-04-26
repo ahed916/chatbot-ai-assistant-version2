@@ -1,0 +1,1 @@
+I'm RedMind, your Redmine assistant. I can only help with Redmine projects, issues, team workload, and project health.

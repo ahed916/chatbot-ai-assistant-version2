@@ -1,34 +1,88 @@
 """
-agents/tools/redmine_write_tools.py
+agents/tools/write_tools.py
 
 LangChain tools for write operations in Redmine.
 Only used by the automation_agent.
 All operations are audit-logged in redmine.py.
+
+Fix: _resolve_user_id uses exact full-name match first, then a stricter
+  word-set check that requires ALL query words to appear in the candidate name.
+  Falls back to single-token whole-word match only.
+
+Fix: request_bulk_delete_confirmation now registers _pending_bulk_delete state
+  inside the tool itself (via _current_session_id ContextVar imported from
+  automation_agent). This matches the pattern used by request_delete_confirmation
+  and ensures the confirmation state is set exactly once — eliminating the
+  double-ask bug that occurred when the post-run tool_call scan also tried to
+  register state.
+
+  NOTE: importing from automation_agent here creates a circular dependency risk.
+  To avoid it, _pending_bulk_delete and _current_session_id are imported directly
+  from automation_agent at call time (lazy import inside the tool function).
 """
 import logging
 from langchain_core.tools import tool
 import redmine as rm
+from datetime import date
 
 logger = logging.getLogger(__name__)
 
 
-# ── Internal User Resolver (NO admin key needed) ─────────────────────────────
+# ── Internal User Resolver ────────────────────────────────────────────────────
+
 def _resolve_user_id(name: str) -> int | None:
-    """Resolve a user name to ID using project memberships + assignees."""
-    name_lower = name.lower().strip()
+    """
+    Resolve a user display name to its Redmine ID using project memberships.
+
+    Match priority (first match wins):
+      1. Exact full-name match (case-insensitive)
+      2. All words in the query appear in the candidate name
+      3. Single-token query is a whole-word match inside the candidate
+    """
+    name_stripped = name.strip()
+    name_lower = name_stripped.lower()
+    query_words = set(name_lower.split())
+
+    candidates: list[tuple[int, str]] = []
+
     try:
         projects = rm.list_projects()
+        seen_ids: set[int] = set()
         for p in projects:
             for m in rm.list_members(str(p["id"])):
                 user = m.get("user", {})
-                uname = user.get("name", "").lower().strip()
-                # Fuzzy match: substring or word overlap
-                if name_lower in uname or uname in name_lower or set(name_lower.split()) & set(uname.split()):
-                    return user["id"]
+                uid = user.get("id")
+                uname = user.get("name", "")
+                if uid and uid not in seen_ids:
+                    seen_ids.add(uid)
+                    candidates.append((uid, uname))
     except Exception:
-        pass
+        return None
+
+    # Pass 1 — exact match
+    for uid, uname in candidates:
+        if uname.lower() == name_lower:
+            return uid
+
+    # Pass 2 — all query words present in candidate name
+    if len(query_words) > 1:
+        for uid, uname in candidates:
+            uname_lower = uname.lower()
+            if all(w in uname_lower for w in query_words):
+                return uid
+
+    # Pass 3 — single token, whole-word match only
+    if len(query_words) == 1:
+        import re
+        pattern = re.compile(r'\b' + re.escape(name_lower) + r'\b')
+        for uid, uname in candidates:
+            if pattern.search(uname.lower()):
+                return uid
+
     return None
 
+
+# ── Write tools ───────────────────────────────────────────────────────────────
 
 @tool
 def create_redmine_issue(
@@ -57,22 +111,23 @@ def create_redmine_issue(
     try:
         project_id = rm.resolve_project_id(project_identifier)
 
-        # Resolve tracker name to ID
         trackers = rm.list_trackers()
         tracker_id = next(
             (t["id"] for t in trackers if t["name"].lower() == tracker.lower()), 1
         )
 
-        # Resolve priority name to ID
         priority_map = {"low": 1, "normal": 2, "high": 3, "urgent": 4, "immediate": 5}
         priority_id = priority_map.get(priority.lower(), 2)
 
-        # Resolve assignee name to ID
         assigned_to_id = None
         if assignee_name:
             assigned_to_id = _resolve_user_id(assignee_name)
             if assigned_to_id is None:
-                return f"Could not find user '{assignee_name}'. Issue not created. Check spelling or project membership."
+                return (
+                    f"❌ User '{assignee_name}' was not found in any project membership. "
+                    f"Issue was NOT created. "
+                    f"Ask the user to check the exact display name as it appears in Redmine."
+                )
 
         result = rm.create_issue(
             project_id=project_id,
@@ -82,6 +137,7 @@ def create_redmine_issue(
             priority_id=priority_id,
             tracker_id=tracker_id,
             due_date=due_date or None,
+            start_date=date.today().isoformat(),
         )
 
         if not result:
@@ -111,9 +167,6 @@ def update_redmine_issue(
     """
     Update an existing Redmine issue. Only provide the fields you want to change.
 
-    IMPORTANT: Always call get_allowed_status_transitions before updating status
-    to ensure the transition is valid.
-
     Args:
         issue_id: The Redmine issue ID to update
         new_status: New status name (e.g., 'In Progress', 'Resolved', 'Closed')
@@ -122,12 +175,11 @@ def update_redmine_issue(
         new_due_date: New due date in YYYY-MM-DD format
         notes: Comment/note to add to the issue
 
-    Returns: Confirmation of what was updated.
+    Returns: Confirmation of what was updated, or a clear error if it failed.
     """
     try:
         kwargs = {"notes": notes}
 
-        # Resolve status name to ID
         if new_status:
             statuses = rm.list_issue_statuses()
             status_id = next(
@@ -135,17 +187,15 @@ def update_redmine_issue(
             )
             if status_id is None:
                 available = ", ".join(s["name"] for s in statuses)
-                return f"Status '{new_status}' not found. Available: {available}"
+                return f"Status '{new_status}' not found. Available statuses: {available}"
             kwargs["status_id"] = status_id
 
-        # Resolve assignee
         if new_assignee_name:
             assigned_to_id = _resolve_user_id(new_assignee_name)
             if assigned_to_id is None:
                 return f"User '{new_assignee_name}' not found. Issue not updated."
             kwargs["assigned_to_id"] = assigned_to_id
 
-        # Resolve priority
         if new_priority:
             priority_map = {"low": 1, "normal": 2, "high": 3, "urgent": 4, "immediate": 5}
             kwargs["priority_id"] = priority_map.get(new_priority.lower(), 2)
@@ -155,80 +205,89 @@ def update_redmine_issue(
 
         error = rm.update_issue(issue_id, **kwargs)
 
+        if error is None:
+            changes = []
+            if new_status:
+                changes.append(f"status → {new_status}")
+            if new_assignee_name:
+                changes.append(f"assignee → {new_assignee_name}")
+            if new_priority:
+                changes.append(f"priority → {new_priority}")
+            if new_due_date:
+                changes.append(f"due date → {new_due_date}")
+            if notes:
+                changes.append("note added")
+            return f"✅ Issue #{issue_id} updated: {', '.join(changes) or 'no visible changes'}."
+
         if error == "NOT_FOUND":
-            return f"Issue #{issue_id} not found in Redmine."
-        if error and error.startswith("WORKFLOW_ERROR"):
+            return f"❌ Issue #{issue_id} not found in Redmine."
+
+        if error.startswith("WORKFLOW_ERROR"):
+            try:
+                issue = rm.get_issue(issue_id)
+                current_status = issue.get("status", {}).get("name", "Unknown")
+            except Exception:
+                current_status = "Unknown"
+            raw_reason = error.replace("WORKFLOW_ERROR:", "").strip()
             return (
-                f"Workflow error updating issue #{issue_id}: {error}\n"
-                f"Tip: Use get_allowed_status_transitions({issue_id}) to see valid transitions."
+                f"❌ Cannot update issue #{issue_id}.\n"
+                f"   Current status : {current_status}\n"
+                f"   Requested status: {new_status}\n"
+                f"   Reason          : The Redmine workflow does not allow this transition.\n"
+                f"   Redmine says    : {raw_reason}"
             )
 
-        changes = []
-        if new_status:
-            changes.append(f"status → {new_status}")
-        if new_assignee_name:
-            changes.append(f"assignee → {new_assignee_name}")
-        if new_priority:
-            changes.append(f"priority → {new_priority}")
-        if new_due_date:
-            changes.append(f"due date → {new_due_date}")
-        if notes:
-            changes.append("note added")
+        if error.startswith("VALIDATION_ERROR"):
+            raw_reason = error.replace("VALIDATION_ERROR:", "").strip()
+            return (
+                f"❌ Issue #{issue_id} could not be updated — validation failed.\n"
+                f"   Redmine says: {raw_reason}"
+            )
 
-        return f"✅ Issue #{issue_id} updated: {', '.join(changes) or 'no visible changes'}."
+        return f"❌ Issue #{issue_id} update failed: {error}"
+
     except Exception as e:
         logger.error(f"[TOOL] update_redmine_issue failed: {e}")
-        return f"Error updating issue #{issue_id}: {e}"
-
-
-@tool
-def delete_redmine_issue(issue_id: int) -> str:
-    """
-    Permanently delete ONE specific Redmine issue by ID.
-
-    ⚠️  IRREVERSIBLE. Only call this for a single, explicitly named issue.
-    ⚠️  NEVER call this in a loop to delete multiple issues.
-    ⚠️  NEVER call this in response to "delete everything", "delete all", or any
-        vague bulk delete request — use request_bulk_delete_confirmation instead.
-
-    Args:
-        issue_id: The exact Redmine issue ID to delete (must be a specific number)
-    """
-    try:
-        error = rm.delete_issue(issue_id)
-        if error == "NOT_FOUND":
-            return f"Issue #{issue_id} not found — it may have already been deleted."
-        return f"🗑️ Issue #{issue_id} has been permanently deleted."
-    except Exception as e:
-        logger.error(f"[TOOL] delete_redmine_issue failed: {e}")
-        return f"Error deleting issue #{issue_id}: {e}"
+        return f"❌ Error updating issue #{issue_id}: {e}"
 
 
 @tool
 def request_bulk_delete_confirmation(issue_ids: list[int], reason: str) -> str:
     """
-    Use this INSTEAD of delete_redmine_issue when the PM asks to delete
-    multiple issues or uses vague language like "delete everything", "delete all",
-    "clean up", "remove all issues".
+    Use this INSTEAD of deleting multiple issues directly.
+    Call when the user asks to delete multiple issues or uses vague language
+    like "delete everything", "delete all", "clean up", "remove all issues".
 
-    This tool does NOT delete anything. It returns a confirmation prompt
-    that the PM must explicitly approve before any deletion happens.
+    This tool does NOT delete anything. It registers the pending bulk-delete
+    state and returns a confirmation prompt the user must approve.
 
     Args:
         issue_ids: List of issue IDs that WOULD be deleted
         reason: Why these issues were selected (e.g., "all open issues in project X")
     """
+    # Lazy import to avoid circular dependency at module load time
+    from agents.automation_agent import _pending_bulk_delete, _current_session_id
+
+    session_id = _current_session_id.get()
+    _pending_bulk_delete[session_id] = issue_ids
+    logger.info(
+        f"[TOOL] session={session_id} registered pending bulk delete "
+        f"for {len(issue_ids)} issues"
+    )
+
+    from agents.automation_agent import CONFIRMATION_SENTINEL
+
     count = len(issue_ids)
     ids_preview = ", ".join(f"#{i}" for i in issue_ids[:10])
     more = f" ... and {count - 10} more" if count > 10 else ""
 
     return (
-        f"⚠️ CONFIRMATION REQUIRED — Bulk Delete\n\n"
+        CONFIRMATION_SENTINEL +
+        f"⚠️ **Confirmation required** — Bulk Delete\n\n"
         f"You are about to permanently delete {count} issue(s): {ids_preview}{more}\n"
-        f"Reason selected: {reason}\n\n"
-        f"This action is IRREVERSIBLE. All issue history will be lost.\n\n"
-        f"To confirm, please reply: 'Yes, delete those {count} issues'\n"
-        f"To cancel, reply: 'Cancel' or ask for something else."
+        f"Reason: {reason}\n\n"
+        f"This action is **irreversible**. All issue history will be lost.\n\n"
+        f"Reply **\"Yes\"** to confirm, or **\"No\"** to cancel."
     )
 
 
@@ -242,8 +301,6 @@ def bulk_update_issues(
 ) -> str:
     """
     Update multiple issues at once with the same changes.
-    Use this for bulk operations like closing all overdue bugs or reassigning
-    all issues from one person.
 
     Args:
         issue_ids: List of issue IDs to update
@@ -260,7 +317,6 @@ def bulk_update_issues(
     success_ids = []
     failed = []
 
-    # Pre-resolve status/assignee/priority once
     status_id = None
     if new_status:
         statuses = rm.list_issue_statuses()
@@ -306,7 +362,6 @@ def bulk_update_issues(
 WRITE_TOOLS = [
     create_redmine_issue,
     update_redmine_issue,
-    delete_redmine_issue,
     bulk_update_issues,
-    request_bulk_delete_confirmation,  # safety gate for bulk/vague deletes
+    request_bulk_delete_confirmation,
 ]

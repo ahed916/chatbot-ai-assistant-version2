@@ -1,0 +1,7 @@
+✅ Issue #67 created successfully.  
+Title: dark mode  
+Project: e learning platform  
+Assignee: Abir  
+Due: Not set (the due date was rejected because it must be after the start date)
+
+Would you like to set a due date for this issue now, or leave it without a due date?
