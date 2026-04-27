@@ -4,6 +4,9 @@ import { AdminPage } from "./pages/AdminPage";
 import { SetRedmineKeyPage } from "./pages/SetRedmineKeyPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import Chat from "./pages/Chat";
+import UsersPage from "./pages/admin/UsersPage";
+import ConversationsPage from "./pages/admin/ConversationsPage";
+import RedmineStatsPage from "./pages/admin/RedmineStatsPage";
 
 function App() {
   return (
@@ -20,11 +23,29 @@ function App() {
             <Chat />
           </ProtectedRoute>
         } />
+
+        {/* Admin routes */}
         <Route path="/admin" element={
           <ProtectedRoute requiredRole="admin">
             <AdminPage />
           </ProtectedRoute>
         } />
+        <Route path="/admin/users" element={
+          <ProtectedRoute requiredRole="admin">
+            <UsersPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/conversations" element={
+          <ProtectedRoute requiredRole="admin">
+            <ConversationsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/redmine" element={
+          <ProtectedRoute requiredRole="admin">
+            <RedmineStatsPage />
+          </ProtectedRoute>
+        } />
+
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

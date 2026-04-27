@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState, useCallback } from "react";
 
 export interface ChatLog {
   id: string;
@@ -10,45 +9,30 @@ export interface ChatLog {
   timestamp: Date;
 }
 
-// Call this from useChatState after each successful bot reply
-export async function saveChatLog(
-  userId: string,
-  userEmail: string,
-  message: string,
-  response: string
-): Promise<void> {
-  await supabase.from("chat_logs").insert({
-    user_id: userId,
-    user_email: userEmail,
-    message,
-    response,
-  });
+// In-memory store (shared across components via module scope)
+let logsStore: ChatLog[] = [];
+let listeners: Array<() => void> = [];
+
+function notify() {
+  listeners.forEach((fn) => fn());
 }
 
-// Used by the Admin dashboard
-export function useChatLogs() {
-  const [logs, setLogs] = useState<ChatLog[]>([]);
+export function addChatLog(log: ChatLog) {
+  logsStore = [log, ...logsStore];
+  notify();
+}
 
-  useEffect(() => {
-    supabase
-      .from("chat_logs")
-      .select("*")
-      .order("timestamp", { ascending: false })
-      .limit(50)
-      .then(({ data }) => {
-        if (!data) return;
-        setLogs(
-          data.map((row) => ({
-            id: row.id,
-            userId: row.user_id,
-            userEmail: row.user_email,
-            message: row.message,
-            response: row.response ?? "",
-            timestamp: new Date(row.timestamp),
-          }))
-        );
-      });
-  }, []);
+export function useChatLogs() {
+  const [logs, setLogs] = useState<ChatLog[]>(logsStore);
+
+  // Subscribe to changes
+  useState(() => {
+    const listener = () => setLogs([...logsStore]);
+    listeners.push(listener);
+    return () => {
+      listeners = listeners.filter((l) => l !== listener);
+    };
+  });
 
   return { logs };
 }
